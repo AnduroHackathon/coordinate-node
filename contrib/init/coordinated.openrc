@@ -1,0 +1,93 @@
+#!/sbin/openrc-run
+
+# backward compatibility for existing gentoo layout 
+#
+if [ -d "/var/lib/bitcoin/.bitcoin" ]; then
+	COORDINATED_DEFAULT_DATADIR="/var/lib/bitcoin/.bitcoin"
+else
+	COORDINATED_DEFAULT_DATADIR="/var/lib/coordinated"
+fi
+
+COORDINATED_CONFIGFILE=${COORDINATED_CONFIGFILE:-/etc/bitcoin/bitcoin.conf}
+COORDINATED_PIDDIR=${COORDINATED_PIDDIR:-/var/run/coordinated}
+COORDINATED_PIDFILE=${COORDINATED_PIDFILE:-${COORDINATED_PIDDIR}/coordinated.pid}
+COORDINATED_DATADIR=${COORDINATED_DATADIR:-${COORDINATED_DEFAULT_DATADIR}}
+COORDINATED_USER=${COORDINATED_USER:-${BITCOIN_USER:-bitcoin}}
+COORDINATED_GROUP=${COORDINATED_GROUP:-bitcoin}
+COORDINATED_BIN=${COORDINATED_BIN:-/usr/bin/coordinated}
+COORDINATED_NICE=${COORDINATED_NICE:-${NICELEVEL:-0}}
+COORDINATED_OPTS="${COORDINATED_OPTS:-${BITCOIN_OPTS}}"
+
+name="Bitcoin Core Daemon"
+description="Bitcoin cryptocurrency P2P network daemon"
+
+command="/usr/bin/coordinated"
+command_args="-pid=\"${COORDINATED_PIDFILE}\" \
+		-conf=\"${COORDINATED_CONFIGFILE}\" \
+		-datadir=\"${COORDINATED_DATADIR}\" \
+		-daemon \
+		${COORDINATED_OPTS}"
+
+required_files="${COORDINATED_CONFIGFILE}"
+start_stop_daemon_args="-u ${COORDINATED_USER} \
+			-N ${COORDINATED_NICE} -w 2000"
+pidfile="${COORDINATED_PIDFILE}"
+
+# The retry schedule to use when stopping the daemon. Could be either
+# a timeout in seconds or multiple signal/timeout pairs (like
+# "SIGKILL/180 SIGTERM/300")
+retry="${COORDINATED_SIGTERM_TIMEOUT}"
+
+depend() {
+	need localmount net
+}
+
+# verify
+# 1) that the datadir exists and is writable (or create it)
+# 2) that a directory for the pid exists and is writable
+# 3) ownership and permissions on the config file
+start_pre() {
+	checkpath \
+	-d \
+	--mode 0750 \
+	--owner "${COORDINATED_USER}:${COORDINATED_GROUP}" \
+	"${COORDINATED_DATADIR}"
+
+	checkpath \
+	-d \
+	--mode 0755 \
+	--owner "${COORDINATED_USER}:${COORDINATED_GROUP}" \
+	"${COORDINATED_PIDDIR}"
+
+	checkpath -f \
+	-o "${COORDINATED_USER}:${COORDINATED_GROUP}" \
+	-m 0660 \
+	"${COORDINATED_CONFIGFILE}"
+
+	checkconfig || return 1
+}
+
+checkconfig()
+{
+	if grep -qs '^rpcuser=' "${COORDINATED_CONFIGFILE}" && \
+		! grep -qs '^rpcpassword=' "${COORDINATED_CONFIGFILE}" ; then
+		eerror ""
+		eerror "ERROR: You must set a secure rpcpassword to run coordinated."
+		eerror "The setting must appear in ${COORDINATED_CONFIGFILE}"
+		eerror ""
+		eerror "This password is security critical to securing wallets "
+		eerror "and must not be the same as the rpcuser setting."
+		eerror "You can generate a suitable random password using the following "
+		eerror "command from the shell:"
+		eerror ""
+		eerror "bash -c 'tr -dc a-zA-Z0-9 < /dev/urandom | head -c32 && echo'"
+		eerror ""
+		eerror "It is recommended that you also set alertnotify so you are "
+		eerror "notified of problems:"
+		eerror ""
+		eerror "ie: alertnotify=echo %%s | mail -s \"Bitcoin Alert\"" \
+			"admin@foo.com"
+		eerror ""
+		return 1
+	fi
+}

@@ -1,0 +1,33 @@
+# /etc/conf.d/coordinated: config file for /etc/init.d/coordinated
+
+# Config file location
+#COORDINATED_CONFIGFILE="/etc/bitcoin/bitcoin.conf"
+
+# What directory to write pidfile to?  (created and owned by $COORDINATED_USER)
+#COORDINATED_PIDDIR="/var/run/coordinated"
+
+# What filename to give the pidfile
+#COORDINATED_PIDFILE="${COORDINATED_PIDDIR}/coordinated.pid"
+
+# Where to write coordinated data (be mindful that the blockchain is large)
+#COORDINATED_DATADIR="/var/lib/coordinated"
+
+# User and group to own coordinated process
+#COORDINATED_USER="bitcoin"
+#COORDINATED_GROUP="bitcoin"
+
+# Path to coordinated executable
+#COORDINATED_BIN="/usr/bin/coordinated"
+
+# Nice value to run coordinated under
+#COORDINATED_NICE=0
+
+# Additional options (avoid -conf and -datadir, use flags above)
+#COORDINATED_OPTS=""
+
+# The timeout in seconds OpenRC will wait for coordinated to terminate
+# after a SIGTERM has been raised.
+# Note that this will be mapped as argument to start-stop-daemon's
+# '--retry' option, which means you can specify a retry schedule
+# here. For more information see man 8 start-stop-daemon.
+COORDINATED_SIGTERM_TIMEOUT=600
