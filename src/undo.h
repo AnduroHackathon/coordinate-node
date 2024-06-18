@@ -31,6 +31,7 @@ struct TxInUndoFormatter
         }
         ::Serialize(s, txout.fBitAsset);
         ::Serialize(s, txout.fBitAssetControl);
+        ::Serialize(s, txout.isPreconf);
         ::Serialize(s, txout.nAssetID);
         ::Serialize(s, Using<TxOutCompression>(txout.out));
     }
@@ -43,6 +44,7 @@ struct TxInUndoFormatter
         txout.fCoinBase = nCode & 1;
         ::Unserialize(s, txout.fBitAsset);
         ::Unserialize(s, txout.fBitAssetControl);
+        ::Unserialize(s, txout.isPreconf);
         ::Unserialize(s, txout.nAssetID);
         if (txout.nHeight > 0) {
             // Old versions stored the version number for the last spend of

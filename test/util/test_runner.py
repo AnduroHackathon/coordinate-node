@@ -39,7 +39,7 @@ def main():
     # Add the format/level to the logger
     logging.basicConfig(format=formatter, level=level)
 
-    bctester(os.path.join(env_conf["SRCDIR"], "test", "util", "data"), "bitcoin-util-test.json", env_conf)
+    bctester(os.path.join(env_conf["SRCDIR"], "test", "util", "data"), "coordinate-util-test.json", env_conf)
 
 def bctester(testDir, input_basename, buildenv):
     """ Loads and parses the input file, runs all tests and reports results"""
@@ -54,7 +54,7 @@ def bctester(testDir, input_basename, buildenv):
         try:
             bctest(testDir, testObj, buildenv)
             logging.info("PASSED: " + testObj["description"])
-        except:
+        except Exception:
             logging.info("FAILED: " + testObj["description"])
             failed_testcases.append(testObj["description"])
 
@@ -74,6 +74,11 @@ def bctest(testDir, testObj, buildenv):
     """
     # Get the exec names and arguments
     execprog = os.path.join(buildenv["BUILDDIR"], "src", testObj["exec"] + buildenv["EXEEXT"])
+    if testObj["exec"] == "./coordinate-util":
+        execprog = os.getenv("BITCOINUTIL", default=execprog)
+    elif testObj["exec"] == "./coordinate-tx":
+        execprog = os.getenv("BITCOINTX", default=execprog)
+
     execargs = testObj['args']
     execrun = [execprog] + execargs
 
@@ -96,7 +101,7 @@ def bctest(testDir, testObj, buildenv):
         try:
             with open(os.path.join(testDir, outputFn), encoding="utf8") as f:
                 outputData = f.read()
-        except:
+        except Exception:
             logging.error("Output file " + outputFn + " cannot be opened")
             raise
         if not outputData:
@@ -155,7 +160,7 @@ def bctest(testDir, testObj, buildenv):
         want_error = testObj["error_txt"]
         # Compare error text
         # TODO: ideally, we'd compare the strings exactly and also assert
-        # That stderr is empty if no errors are expected. However, bitcoin-tx
+        # That stderr is empty if no errors are expected. However, coordinate-tx
         # emits DISPLAY errors when running as a windows application on
         # linux through wine. Just assert that the expected error text appears
         # somewhere in stderr.

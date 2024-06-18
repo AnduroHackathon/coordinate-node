@@ -4,8 +4,8 @@
 
 #include <node/mempool_persist_args.h>
 
-#include <fs.h>
-#include <util/system.h>
+#include <common/args.h>
+#include <util/fs.h>
 #include <validation.h>
 
 namespace node {
@@ -18,6 +18,11 @@ bool ShouldPersistMempool(const ArgsManager& argsman)
 fs::path MempoolPath(const ArgsManager& argsman)
 {
     return argsman.GetDataDirNet() / "mempool.dat";
+}
+
+fs::path PreConfMempoolPath(const ArgsManager& argsman)
+{
+    return argsman.GetDataDirNet() / "preconf_mempool.dat";
 }
 
 } // namespace node

@@ -13,7 +13,7 @@
 #include <validation.h>
 #include <validationinterface.h>
 #include <node/transaction.h>
-
+#include <coordinate/coordinate_preconf.h>
 #include <future>
 
 namespace node {
@@ -30,13 +30,17 @@ static TransactionError HandleATMPError(const TxValidationState& state, std::str
     }
 }
 
-TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef tx, std::string& err_string, const CAmount& max_tx_fee, bool relay, bool wait_callback)
+TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef tx, std::string& err_string, const CAmount& max_tx_fee, bool relay, bool wait_callback, bool is_preconf)
 {
     // BroadcastTransaction can be called by either sendrawtransaction RPC or the wallet.
     // chainman, mempool and peerman are initialized before the RPC server and wallet are started
     // and reset after the RPC sever and wallet are stopped.
     assert(node.chainman);
-    assert(node.mempool);
+    if(is_preconf) {
+        assert(node.preconfmempool);
+    } else {
+        assert(node.mempool);
+    }
     assert(node.peerman);
 
     std::promise<void> promise;
@@ -66,20 +70,22 @@ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t
             // The mempool transaction may have the same or different witness (and
             // wtxid) as this transaction. Use the mempool's wtxid for reannouncement.
             wtxid = mempool_tx->GetWitnessHash();
-        } else {
+        } else if (auto mempool_tx = node.preconfmempool->get(txid); mempool_tx) {
+            wtxid = mempool_tx->GetWitnessHash();
+        }  else { 
             // Transaction is not already in the mempool.
             if (max_tx_fee > 0) {
                 // First, call ATMP with test_accept and check the fee. If ATMP
                 // fails here, return error immediately.
-                const MempoolAcceptResult result = node.chainman->ProcessTransaction(tx, /*test_accept=*/ true);
+                const MempoolAcceptResult result = node.chainman->ProcessTransaction(tx, /*test_accept=*/ true, is_preconf);
                 if (result.m_result_type != MempoolAcceptResult::ResultType::VALID) {
                     return HandleATMPError(result.m_state, err_string);
-                } else if (result.m_base_fees.value() > max_tx_fee) {
+                } else if (result.m_base_fees.value() > max_tx_fee && tx->nVersion != TRANSACTION_PRECONF_VERSION) {
                     return TransactionError::MAX_FEE_EXCEEDED;
                 }
             }
             // Try to submit the transaction to the mempool.
-            const MempoolAcceptResult result = node.chainman->ProcessTransaction(tx, /*test_accept=*/ false);
+            const MempoolAcceptResult result = node.chainman->ProcessTransaction(tx, /*test_accept=*/ false, is_preconf);
             if (result.m_result_type != MempoolAcceptResult::ResultType::VALID) {
                 return HandleATMPError(result.m_state, err_string);
             }
@@ -89,7 +95,11 @@ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t
             if (relay) {
                 // the mempool tracks locally submitted transactions to make a
                 // best-effort of initial broadcast
-                node.mempool->AddUnbroadcastTx(txid);
+                if(is_preconf) {
+                    node.preconfmempool->AddUnbroadcastTx(txid);
+                } else {
+                    node.mempool->AddUnbroadcastTx(txid);
+                }
             }
 
             if (wait_callback) {
@@ -122,12 +132,32 @@ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t
     return TransactionError::OK;
 }
 
-CTransactionRef GetTransaction(const CBlockIndex* const block_index, const CTxMemPool* const mempool, const uint256& hash, const Consensus::Params& consensusParams, uint256& hashBlock)
+CTransactionRef GetTransaction(const CBlockIndex* const block_index, const CTxMemPool* const mempool, const uint256& hash, uint256& hashBlock, const BlockManager& blockman, bool is_preconf)
 {
     if (mempool && !block_index) {
-        CTransactionRef ptx = mempool->get(hash);
+        CTransactionRef ptx;
+        if(is_preconf) {
+            ptx = mempool->get(hash);
+        } else {
+            ptx = mempool->get(hash);
+        }
         if (ptx) return ptx;
     }
+
+    std::vector<SignedBlock> finalizedBlocks= getFinalizedSignedBlocks();
+    for (SignedBlock finalizedSignedBlock : finalizedBlocks) {
+        for (const auto& tx : finalizedSignedBlock.vtx) {
+            if (tx->GetHash() == hash) {
+                return tx;
+            }
+        }
+    }
+
+    if(is_preconf) {
+        return nullptr;
+    }
+
+
     if (g_txindex) {
         CTransactionRef tx;
         uint256 block_hash;
@@ -143,11 +173,19 @@ CTransactionRef GetTransaction(const CBlockIndex* const block_index, const CTxMe
     }
     if (block_index) {
         CBlock block;
-        if (ReadBlockFromDisk(block, block_index, consensusParams)) {
+        if (blockman.ReadBlockFromDisk(block, *block_index)) {
             for (const auto& tx : block.vtx) {
                 if (tx->GetHash() == hash) {
                     hashBlock = block_index->GetBlockHash();
                     return tx;
+                }
+            }
+            for (SignedBlock finalizedSignedBlock : block.preconfBlock) {
+                for (const auto& tx : finalizedSignedBlock.vtx) {
+                    if (tx->GetHash() == hash) {
+                        hashBlock = block_index->GetBlockHash();
+                        return tx;
+                    }
                 }
             }
         }

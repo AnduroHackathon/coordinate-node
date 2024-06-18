@@ -6,8 +6,8 @@
 #include <policy/fees.h>
 
 #include <clientversion.h>
+#include <common/system.h>
 #include <consensus/amount.h>
-#include <fs.h>
 #include <kernel/mempool_entry.h>
 #include <logging.h>
 #include <policy/feerate.h>
@@ -18,12 +18,13 @@
 #include <sync.h>
 #include <tinyformat.h>
 #include <uint256.h>
+#include <util/fs.h>
 #include <util/serfloat.h>
-#include <util/system.h>
 #include <util/time.h>
 
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -527,8 +528,8 @@ bool CBlockPolicyEstimator::_removeTx(const uint256& hash, bool inBlock)
     }
 }
 
-CBlockPolicyEstimator::CBlockPolicyEstimator(const fs::path& estimation_filepath)
-    : m_estimation_filepath{estimation_filepath}, nBestSeenHeight{0}, firstRecordedHeight{0}, historicalFirst{0}, historicalBest{0}, trackedTxs{0}, untrackedTxs{0}
+CBlockPolicyEstimator::CBlockPolicyEstimator(const fs::path& estimation_filepath, const bool read_stale_estimates)
+    : m_estimation_filepath{estimation_filepath}
 {
     static_assert(MIN_BUCKET_FEERATE > 0, "Min feerate must be nonzero");
     size_t bucketIndex = 0;
@@ -545,9 +546,20 @@ CBlockPolicyEstimator::CBlockPolicyEstimator(const fs::path& estimation_filepath
     shortStats = std::unique_ptr<TxConfirmStats>(new TxConfirmStats(buckets, bucketMap, SHORT_BLOCK_PERIODS, SHORT_DECAY, SHORT_SCALE));
     longStats = std::unique_ptr<TxConfirmStats>(new TxConfirmStats(buckets, bucketMap, LONG_BLOCK_PERIODS, LONG_DECAY, LONG_SCALE));
 
-    // If the fee estimation file is present, read recorded estimations
     AutoFile est_file{fsbridge::fopen(m_estimation_filepath, "rb")};
-    if (est_file.IsNull() || !Read(est_file)) {
+
+    if (est_file.IsNull()) {
+        LogPrintf("%s is not found. Continue anyway.\n", fs::PathToString(m_estimation_filepath));
+        return;
+    }
+
+    std::chrono::hours file_age = GetFeeEstimatorFileAge();
+    if (file_age > MAX_FILE_AGE && !read_stale_estimates) {
+        LogPrintf("Fee estimation file %s too old (age=%lld > %lld hours) and will not be used to avoid serving stale estimates.\n", fs::PathToString(m_estimation_filepath), Ticks<std::chrono::hours>(file_age), Ticks<std::chrono::hours>(MAX_FILE_AGE));
+        return;
+    }
+
+    if (!Read(est_file)) {
         LogPrintf("Failed to read fee estimates from %s. Continue anyway.\n", fs::PathToString(m_estimation_filepath));
     }
 }
@@ -903,10 +915,16 @@ CFeeRate CBlockPolicyEstimator::estimateSmartFee(int confTarget, FeeCalculation 
 
 void CBlockPolicyEstimator::Flush() {
     FlushUnconfirmed();
+    FlushFeeEstimates();
+}
 
+void CBlockPolicyEstimator::FlushFeeEstimates()
+{
     AutoFile est_file{fsbridge::fopen(m_estimation_filepath, "wb")};
     if (est_file.IsNull() || !Write(est_file)) {
         LogPrintf("Failed to write fee estimates to %s. Continue anyway.\n", fs::PathToString(m_estimation_filepath));
+    } else {
+        LogPrintf("Flushed fee estimates to %s.\n", fs::PathToString(m_estimation_filepath.filename()));
     }
 }
 
@@ -1011,6 +1029,13 @@ void CBlockPolicyEstimator::FlushUnconfirmed()
     LogPrint(BCLog::ESTIMATEFEE, "Recorded %u unconfirmed txs from mempool in %gs\n", num_entries, Ticks<SecondsDouble>(endclear - startclear));
 }
 
+std::chrono::hours CBlockPolicyEstimator::GetFeeEstimatorFileAge()
+{
+    auto file_time = std::filesystem::last_write_time(m_estimation_filepath);
+    auto now = std::filesystem::file_time_type::clock::now();
+    return std::chrono::duration_cast<std::chrono::hours>(now - file_time);
+}
+
 static std::set<double> MakeFeeSet(const CFeeRate& min_incremental_fee,
                                    double max_filter_fee_rate,
                                    double fee_filter_spacing)
@@ -1029,8 +1054,9 @@ static std::set<double> MakeFeeSet(const CFeeRate& min_incremental_fee,
     return fee_set;
 }
 
-FeeFilterRounder::FeeFilterRounder(const CFeeRate& minIncrementalFee)
-    : m_fee_set{MakeFeeSet(minIncrementalFee, MAX_FILTER_FEERATE, FEE_FILTER_SPACING)}
+FeeFilterRounder::FeeFilterRounder(const CFeeRate& minIncrementalFee, FastRandomContext& rng)
+    : m_fee_set{MakeFeeSet(minIncrementalFee, MAX_FILTER_FEERATE, FEE_FILTER_SPACING)},
+      insecure_rand{rng}
 {
 }
 

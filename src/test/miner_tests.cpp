@@ -2,19 +2,20 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <addresstype.h>
 #include <coins.h>
+#include <common/system.h>
 #include <consensus/consensus.h>
 #include <consensus/merkle.h>
 #include <consensus/tx_verify.h>
 #include <node/miner.h>
 #include <policy/policy.h>
-#include <script/standard.h>
+#include <test/util/random.h>
 #include <test/util/txmempool.h>
 #include <timedata.h>
 #include <txmempool.h>
 #include <uint256.h>
 #include <util/strencodings.h>
-#include <util/system.h>
 #include <util/time.h>
 #include <validation.h>
 #include <versionbits.h>
@@ -36,7 +37,9 @@ struct MinerTestingSetup : public TestingSetup {
     bool TestSequenceLocks(const CTransaction& tx, CTxMemPool& tx_mempool) EXCLUSIVE_LOCKS_REQUIRED(::cs_main)
     {
         CCoinsViewMemPool view_mempool{&m_node.chainman->ActiveChainstate().CoinsTip(), tx_mempool};
-        return CheckSequenceLocksAtTip(m_node.chainman->ActiveChain().Tip(), view_mempool, tx);
+        CBlockIndex* tip{m_node.chainman->ActiveChain().Tip()};
+        const std::optional<LockPoints> lock_points{CalculateLockPointsAtTip(tip, view_mempool, tx)};
+        return lock_points.has_value() && CheckSequenceLocksAtTip(tip, *lock_points);
     }
     CTxMemPool& MakeMempool()
     {
@@ -633,6 +636,7 @@ BOOST_AUTO_TEST_CASE(CreateNewBlock_validity)
             pblock->nNonce = bi.nonce;
         }
         std::shared_ptr<const CBlock> shared_pblock = std::make_shared<const CBlock>(*pblock);
+        
         BOOST_CHECK(Assert(m_node.chainman)->ProcessNewBlock(shared_pblock, true, true, nullptr));
         pblock->hashPrevBlock = pblock->GetHash();
     }

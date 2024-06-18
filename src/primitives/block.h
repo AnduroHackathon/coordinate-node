@@ -6,12 +6,13 @@
 #ifndef BITCOIN_PRIMITIVES_BLOCK_H
 #define BITCOIN_PRIMITIVES_BLOCK_H
 
-#include <auxpow.h>
 #include <primitives/transaction.h>
 #include <primitives/pureheader.h>
 #include <serialize.h>
 #include <uint256.h>
 #include <util/time.h>
+#include <auxpow.h>
+#include <coordinate/signed_block.h>
 
 /** Nodes collect new transactions into a block, hash them into a hash tree,
  * and scan through nonce values to make the block's hash satisfy proof-of-work
@@ -23,9 +24,11 @@
 class CBlockHeader : public CPureBlockHeader
 {
 public:
+    // header
     std::shared_ptr<CAuxPow> auxpow;
     std::string currentKeys;
-    int32_t nextIndex;
+    int32_t currentIndex;
+
 
     CBlockHeader()
     {
@@ -34,7 +37,7 @@ public:
 
     SERIALIZE_METHODS(CBlockHeader, obj)
     {
-        READWRITEAS(CPureBlockHeader, obj);
+        READWRITE(AsBase<CPureBlockHeader>(obj));
         if (obj.IsAuxpow())
         {
             SER_READ(obj, obj.auxpow = std::make_shared<CAuxPow>());
@@ -45,14 +48,14 @@ public:
             SER_READ(obj, obj.auxpow.reset());
         }
         READWRITE(obj.currentKeys);
-        READWRITE(obj.nextIndex);
+        READWRITE(obj.currentIndex);
     }
 
     void SetNull()
     {
         CPureBlockHeader::SetNull();
         currentKeys = "";
-        nextIndex = 0;
+        currentIndex = 0;
         auxpow.reset();
     }
 
@@ -69,6 +72,9 @@ class CBlock : public CBlockHeader
 public:
     // network and disk
     std::vector<CTransactionRef> vtx;
+    std::vector<SignedBlock> preconfBlock;
+    std::vector<uint256> invalidTx;
+    uint256 reconsiliationBlock;
 
     // memory only
     mutable bool fChecked;
@@ -86,19 +92,23 @@ public:
 
     SERIALIZE_METHODS(CBlock, obj)
     {
-        READWRITEAS(CBlockHeader, obj);
-        READWRITE(obj.vtx);
+        READWRITE(AsBase<CBlockHeader>(obj), obj.vtx);
+        READWRITE(obj.invalidTx);
+        READWRITE(obj.preconfBlock);
+        READWRITE(obj.reconsiliationBlock);
     }
 
     void SetNull()
     {
         CBlockHeader::SetNull();
         vtx.clear();
+        invalidTx.clear();
+        preconfBlock.clear();
+        reconsiliationBlock.SetNull();
         fChecked = false;
     }
 
-    CBlockHeader GetBlockHeader() const
-    {
+    CBlockHeader GetBlockHeader() const {
         CBlockHeader block;
         block.nVersion       = nVersion;
         block.hashPrevBlock  = hashPrevBlock;
@@ -119,6 +129,15 @@ public:
  */
 struct CBlockLocator
 {
+    /** Historically CBlockLocator's version field has been written to network
+     * streams as the negotiated protocol version and to disk streams as the
+     * client version, but the value has never been used.
+     *
+     * Hard-code to the highest protocol version ever written to a network stream.
+     * SerParams can be used if the field requires any meaning in the future,
+     **/
+    static constexpr int DUMMY_VERSION = 70016;
+
     std::vector<uint256> vHave;
 
     CBlockLocator() {}
@@ -127,9 +146,8 @@ struct CBlockLocator
 
     SERIALIZE_METHODS(CBlockLocator, obj)
     {
-        int nVersion = s.GetVersion();
-        if (!(s.GetType() & SER_GETHASH))
-            READWRITE(nVersion);
+        int nVersion = DUMMY_VERSION;
+        READWRITE(nVersion);
         READWRITE(obj.vHave);
     }
 

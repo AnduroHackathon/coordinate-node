@@ -18,7 +18,7 @@ How to Upgrade
 
 If you are running an older version, shut it down. Wait until it has completely
 shut down (which might take a few minutes for older versions), then run the
-installer (on Windows) or just copy over `/Applications/Bitcoin-Qt` (on Mac)
+installer (on Windows) or just copy over `/Applications/Coordinate-Qt` (on Mac)
 or `coordinated`/`coordinate-qt` (on Linux).
 
 If your node has a txindex, the txindex db will be migrated the first time you run 0.17.0 or newer, which may take up to a few hours. Your node will not be functional until this migration completes.
@@ -623,7 +623,7 @@ Support for Python 2 has been discontinued for all test files and tools.
 - #13465 `81069a7` Avoid concurrency issue when make multiple target (ken2812221)
 - #13454 `45c00f8` Make sure `LC_ALL=C` is set in all shell scripts (practicalswift)
 - #13480 `31145a3` Avoid copies in range-for loops and add a warning to detect them (theuni)
-- #13486 `66e1a08` Move rpc/util.cpp from libbitcoin-util to libbitcoin-server (ken2812221)
+- #13486 `66e1a08` Move rpc/util.cpp from libcoordinate-util to libbitcoin-server (ken2812221)
 - #13580 `40334c7` Detect if char equals `int8_t` (ken2812221)
 - #12788 `287e4ed` Tune wildcards for LIBSECP256K1 target (kallewoof)
 - #13611 `b55f0c3` bugfix: Use `__cpuid_count` for gnu C to avoid gitian build fail (ken2812221)
@@ -848,7 +848,7 @@ Support for Python 2 has been discontinued for all test files and tools.
 - #13494 `d67eff8` Follow-up to #13454: Fix broken build by exporting `LC_ALL=C` (practicalswift)
 - #13510 `03f3925` Scripts and tools: Obsolete #!/bin/bash shebang (DesWurstes)
 - #13577 `c9eb8d1` logging: Avoid nstart may be used uninitialized in appinitmain warning (mruddy)
-- #13603 `453ae5e` bitcoin-tx: Stricter check for valid integers (domob1812)
+- #13603 `453ae5e` coordinate-tx: Stricter check for valid integers (domob1812)
 - #13118 `c05c93c` RPCAuth Detection in Logs (Linrono)
 - #13647 `4027ec1` Scripts and tools: Fix `BIND_NOW` check in security-check.py (conradoplg)
 - #13692 `f5d166a` contrib: Clone core repo in gitian-build (MarcoFalke)

@@ -2,8 +2,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef BITCOIN_UTIL_HASHER_H
-#define BITCOIN_UTIL_HASHER_H
+#ifndef COORDINATE_UTIL_HASHER_H
+#define COORDINATE_UTIL_HASHER_H
 
 #include <crypto/common.h>
 #include <crypto/siphash.h>
@@ -36,7 +36,7 @@ private:
     const uint64_t k0, k1;
 
 public:
-    SaltedOutpointHasher();
+    SaltedOutpointHasher(bool deterministic = false);
 
     /**
      * Having the hash noexcept allows libstdc++'s unordered_map to recalculate
@@ -98,4 +98,4 @@ public:
     size_t operator()(const Span<const unsigned char>& script) const;
 };
 
-#endif // BITCOIN_UTIL_HASHER_H
+#endif // COORDINATE_UTIL_HASHER_H

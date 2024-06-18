@@ -3,30 +3,27 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef BITCOIN_TXDB_H
-#define BITCOIN_TXDB_H
+#ifndef COORDINATE_TXDB_H
+#define COORDINATE_TXDB_H
 
 #include <coins.h>
 #include <dbwrapper.h>
 #include <kernel/cs_main.h>
 #include <sync.h>
-#include <fs.h>
+#include <util/fs.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
-#include <string>
-#include <utility>
 #include <vector>
 #include <coordinate/coordinate_assets.h>
+#include <coordinate/signed_block.h>
+#include <coordinate/invalid_tx.h>
+#include <coordinate/signed_txindex.h>
 
-
-class CBlockFileInfo;
-class CBlockIndex;
+class COutPoint;
 class uint256;
-namespace Consensus {
-struct Params;
-};
-struct bilingual_str;
 
 //! -dbcache default (MiB)
 static const int64_t nDefaultDbCache = 450;
@@ -47,18 +44,24 @@ static const int64_t max_filter_index_cache = 1024;
 //! Max memory allocated to coin DB specific cache (MiB)
 static const int64_t nMaxCoinsDBCache = 8;
 
+//! User-controlled performance and debug options.
+struct CoinsViewOptions {
+    //! Maximum database write batch size in bytes.
+    size_t batch_write_bytes = nDefaultDbBatchSize;
+    //! If non-zero, randomly exit when the database is flushed with (1/ratio)
+    //! probability.
+    int simulate_crash_ratio = 0;
+};
+
 /** CCoinsView backed by the coin database (chainstate/) */
 class CCoinsViewDB final : public CCoinsView
 {
 protected:
+    DBParams m_db_params;
+    CoinsViewOptions m_options;
     std::unique_ptr<CDBWrapper> m_db;
-    fs::path m_ldb_path;
-    bool m_is_memory;
 public:
-    /**
-     * @param[in] ldb_path    Location in the filesystem where leveldb data will be stored.
-     */
-    explicit CCoinsViewDB(fs::path ldb_path, size_t nCacheSize, bool fMemory, bool fWipe);
+    explicit CCoinsViewDB(DBParams db_params, CoinsViewOptions options);
 
     bool GetCoin(const COutPoint &outpoint, Coin &coin) const override;
     bool HaveCoin(const COutPoint &outpoint) const override;
@@ -78,37 +81,39 @@ public:
     std::optional<fs::path> StoragePath() { return m_db->StoragePath(); }
 };
 
-/** Access to the block database (blocks/index/) */
-class CBlockTreeDB : public CDBWrapper
-{
-public:
-    explicit CBlockTreeDB(size_t nCacheSize, bool fMemory = false, bool fWipe = false);
-
-    bool WriteBatchSync(const std::vector<std::pair<int, const CBlockFileInfo*> >& fileInfo, int nLastFile, const std::vector<const CBlockIndex*>& blockinfo);
-    bool ReadBlockFileInfo(int nFile, CBlockFileInfo &info);
-    bool ReadLastBlockFile(int &nFile);
-    bool WriteReindexing(bool fReindexing);
-    void ReadReindexing(bool &fReindexing);
-    bool WriteFlag(const std::string &name, bool fValue);
-    bool ReadFlag(const std::string &name, bool &fValue);
-    bool LoadBlockIndexGuts(const Consensus::Params& consensusParams, std::function<CBlockIndex*(const uint256&)> insertBlockIndex)
-        EXCLUSIVE_LOCKS_REQUIRED(::cs_main);
-};
-
-std::optional<bilingual_str> CheckLegacyTxindex(CBlockTreeDB& block_tree_db);
-
 /** Access to the CoordinateAsset database (blocks/CoordinateAssets/) */
 class CoordinateAssetDB : public CDBWrapper
 {
 public:
-    CoordinateAssetDB(size_t nCacheSize, bool fMemory = false, bool fWipe = false);
+    CoordinateAssetDB(DBParams db_params);
     bool WriteCoordinateAssets(const std::vector<CoordinateAsset>& vAsset);
     std::vector<CoordinateAsset> GetAssets();
     bool GetLastAssetID(uint32_t& nID);
     bool WriteLastAssetID(const uint32_t nID);
     bool GetAsset(const uint32_t nID,CoordinateAsset& asset);
     bool RemoveAsset(const uint32_t nID);
+    bool WriteAssetMinedBlock(uint256 blockHash);
+    bool getAssetMinedBlock(uint256 blockHash);
+    bool GetLastAssetPruneHeight(uint32_t& nID);
+    bool WriteLastAssetPruneHeight(const uint32_t nID);
+};
+
+/** Access to the signed blocks database (blocks/signedblocks/) */
+class SignedBlocksDB : public CDBWrapper {
+public:
+    SignedBlocksDB(DBParams db_params);
+    bool GetLastSignedBlockID(uint64_t& nHeight);
+    bool WriteLastSignedBlockID(const uint64_t nHeight);
+    bool GetLastSignedBlockHash(uint256& blockHash);
+    bool WriteLastSignedBlockHash(const uint256 blockHash);
+    bool WriteSignedBlockHash(const std::vector<uint256>& signedBlockHashes, uint256 blockHash);
+    bool GetSignedBlockHash(const uint256 signedBlockHashes, uint256& blockHash);
+    bool WriteInvalidTx(const std::vector<InvalidTx>& invalidTxs);
+    bool GetInvalidTx(const uint64_t nHeight, InvalidTx& invalidTx);
+    bool WriteTxPosition(const SignedTxindex& signedTx, uint256 txHash);
+    bool getTxPosition(const uint256 txHash, SignedTxindex& txIndex);
 };
 
 
-#endif // BITCOIN_TXDB_H
+
+#endif // COORDINATE_TXDB_H

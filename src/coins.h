@@ -11,6 +11,7 @@
 #include <memusage.h>
 #include <primitives/transaction.h>
 #include <serialize.h>
+#include <support/allocators/pool.h>
 #include <uint256.h>
 #include <util/hasher.h>
 
@@ -47,11 +48,14 @@ public:
     //! Is this a BitAsset controller?
     bool fBitAssetControl;
 
+    //! Is this a BitAsset controller?
+    bool isPreconf;
+
     uint32_t nAssetID;
 
     //! construct a Coin from a CTxOut and height/coinbase information.
-    Coin(CTxOut&& outIn, int nHeightIn, bool fCoinBaseIn, bool fBitAssetIn, bool fBitAssetControlIn, uint32_t nAssetIDIn) : out(std::move(outIn)), fCoinBase(fCoinBaseIn), nHeight(nHeightIn), fBitAsset(fBitAssetIn), fBitAssetControl(fBitAssetControlIn), nAssetID(nAssetIDIn) {}
-    Coin(const CTxOut& outIn, int nHeightIn, bool fCoinBaseIn, bool fBitAssetIn, bool fBitAssetControlIn, uint32_t nAssetIDIn) : out(outIn), fCoinBase(fCoinBaseIn),nHeight(nHeightIn), fBitAsset(fBitAssetIn), fBitAssetControl(fBitAssetControlIn), nAssetID(nAssetIDIn) {}
+    Coin(CTxOut&& outIn, int nHeightIn, bool fCoinBaseIn, bool fBitAssetIn, bool fBitAssetControlIn, bool isPreconfIn, uint32_t nAssetIDIn) : out(std::move(outIn)), fCoinBase(fCoinBaseIn), nHeight(nHeightIn), fBitAsset(fBitAssetIn), fBitAssetControl(fBitAssetControlIn), isPreconf(isPreconfIn), nAssetID(nAssetIDIn) {}
+    Coin(const CTxOut& outIn, int nHeightIn, bool fCoinBaseIn, bool fBitAssetIn, bool fBitAssetControlIn, bool isPreconfIn, uint32_t nAssetIDIn) : out(outIn), fCoinBase(fCoinBaseIn),nHeight(nHeightIn), fBitAsset(fBitAssetIn), fBitAssetControl(fBitAssetControlIn), isPreconf(isPreconfIn), nAssetID(nAssetIDIn) {}
 
     void Clear() {
         out.SetNull();
@@ -59,11 +63,16 @@ public:
         nHeight = 0;
         fBitAsset = false;
         fBitAssetControl = false;
+        isPreconf = false;
         nAssetID = 0;
     }
 
     //! empty constructor
-    Coin() : fCoinBase(false), nHeight(0), fBitAsset(false), fBitAssetControl(false), nAssetID(0) { }
+    Coin() : fCoinBase(false), nHeight(0), fBitAsset(false), fBitAssetControl(false), isPreconf(false), nAssetID(0)  { }
+
+    bool IsCoinBase() const {
+        return fCoinBase;
+    }
 
     bool IsBitAsset() const {
         return fBitAsset;
@@ -73,13 +82,14 @@ public:
         return fBitAssetControl;
     }
 
+    bool isPreconfCoin() const {
+        return isPreconf;
+    }
+
     uint32_t GetAssetID() const {
         return nAssetID;
     }
 
-    bool IsCoinBase() const {
-        return fCoinBase;
-    }
 
     template<typename Stream>
     void Serialize(Stream &s) const {
@@ -89,6 +99,7 @@ public:
         ::Serialize(s, Using<TxOutCompression>(out));
         ::Serialize(s, fBitAsset);
         ::Serialize(s, fBitAssetControl);
+        ::Serialize(s, isPreconf);
         ::Serialize(s, nAssetID);
     }
 
@@ -101,6 +112,7 @@ public:
         ::Unserialize(s, Using<TxOutCompression>(out));
         ::Unserialize(s, fBitAsset);
         ::Unserialize(s, fBitAssetControl);
+        ::Unserialize(s, isPreconf);
         ::Unserialize(s, nAssetID);
     }
 
@@ -162,7 +174,22 @@ struct CCoinsCacheEntry
     CCoinsCacheEntry(Coin&& coin_, unsigned char flag) : coin(std::move(coin_)), flags(flag) {}
 };
 
-typedef std::unordered_map<COutPoint, CCoinsCacheEntry, SaltedOutpointHasher> CCoinsMap;
+/**
+ * PoolAllocator's MAX_BLOCK_SIZE_BYTES parameter here uses sizeof the data, and adds the size
+ * of 4 pointers. We do not know the exact node size used in the std::unordered_node implementation
+ * because it is implementation defined. Most implementations have an overhead of 1 or 2 pointers,
+ * so nodes can be connected in a linked list, and in some cases the hash value is stored as well.
+ * Using an additional sizeof(void*)*4 for MAX_BLOCK_SIZE_BYTES should thus be sufficient so that
+ * all implementations can allocate the nodes from the PoolAllocator.
+ */
+using CCoinsMap = std::unordered_map<COutPoint,
+                                     CCoinsCacheEntry,
+                                     SaltedOutpointHasher,
+                                     std::equal_to<COutPoint>,
+                                     PoolAllocator<std::pair<const COutPoint, CCoinsCacheEntry>,
+                                                   sizeof(std::pair<const COutPoint, CCoinsCacheEntry>) + sizeof(void*) * 4>>;
+
+using CCoinsMapMemoryResource = CCoinsMap::allocator_type::ResourceType;
 
 /** Cursor for iterating over CoinsView state */
 class CCoinsViewCursor
@@ -242,19 +269,23 @@ public:
 /** CCoinsView that adds a memory cache for transactions to another CCoinsView */
 class CCoinsViewCache : public CCoinsViewBacked
 {
+private:
+    const bool m_deterministic;
+
 protected:
     /**
      * Make mutable so that we can "fill the cache" even from Get-methods
      * declared as "const".
      */
     mutable uint256 hashBlock;
+    mutable CCoinsMapMemoryResource m_cache_coins_memory_resource{};
     mutable CCoinsMap cacheCoins;
 
     /* Cached dynamic memory usage for the inner Coin objects. */
-    mutable size_t cachedCoinsUsage;
+    mutable size_t cachedCoinsUsage{0};
 
 public:
-    CCoinsViewCache(CCoinsView *baseIn);
+    CCoinsViewCache(CCoinsView *baseIn, bool deterministic = false);
 
     /**
      * By deleting the copy constructor, we prevent accidentally using it when one intends to create a cache on top of a base cache.
@@ -310,7 +341,7 @@ public:
      * If no unspent output exists for the passed outpoint, this call
      * has no effect.
      */
-    bool SpendCoin(const COutPoint &outpoint, bool& fBitAsset, bool& fBitAssetControl, uint32_t& nAssetID, Coin* moveto = nullptr);
+    bool SpendCoin(const COutPoint &outpoint, bool& fBitAsset, bool& fBitAssetControl, bool& isPreconf, uint32_t& nAssetID, Coin* moveto = nullptr);
 
 
     /**
@@ -319,6 +350,7 @@ public:
      * has no effect.
      */
     bool getAssetCoin(const COutPoint &outpoint, bool& fBitAsset, bool& fBitAssetControl, uint32_t& nAssetID, Coin* moveto = nullptr);
+
 
 
     /**
@@ -360,6 +392,9 @@ public:
     //! See: https://stackoverflow.com/questions/42114044/how-to-release-unordered-map-memory
     void ReallocateCache();
 
+    //! Run an internal sanity check on the cache data structure. */
+    void SanityCheck() const;
+
 private:
     /**
      * @note this is marked const, but may actually append to `cacheCoins`, increasing
@@ -374,7 +409,8 @@ private:
 //! an overwrite.
 // TODO: pass in a boolean to limit these possible overwrites to known
 // (pre-BIP34) cases.
-void AddCoins(CCoinsViewCache& cache, const CTransaction& tx, int nHeight, uint32_t nAssetID, const CAmount amountAssetIn, int nControlN = -1, uint32_t nNewAssetID = 0, bool check = false);
+void AddCoins(CCoinsViewCache& cache, const CTransaction& tx, int nHeight, const CAmount preconfRefund, uint32_t nAssetID, const CAmount amountAssetIn, int nControlN = -1, uint32_t nNewAssetID = 0, bool check = false);
+
 
 //! Utility function to find any unspent output with a given txid.
 //! This function can be quite expensive because in the event of a transaction
@@ -399,6 +435,7 @@ public:
     }
 
     bool GetCoin(const COutPoint &outpoint, Coin &coin) const override;
+    bool HaveCoin(const COutPoint &outpoint) const override;
 
 private:
     /** A list of callbacks to execute upon leveldb read error. */

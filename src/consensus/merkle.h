@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <primitives/block.h>
+#include <coordinate/signed_block.h>
 #include <uint256.h>
 
 uint256 ComputeMerkleRoot(std::vector<uint256> hashes, bool* mutated = nullptr);
@@ -24,4 +25,7 @@ uint256 BlockMerkleRoot(const CBlock& block, bool* mutated = nullptr);
  */
 uint256 BlockWitnessMerkleRoot(const CBlock& block, bool* mutated = nullptr);
 
+uint256 SignedBlockMerkleRoot(const SignedBlock& block, bool* mutated = nullptr);
+
+uint256 SignedBlockWitnessMerkleRoot(const SignedBlock& block, bool* mutated = nullptr);
 #endif // BITCOIN_CONSENSUS_MERKLE_H

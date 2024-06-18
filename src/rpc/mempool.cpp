@@ -9,7 +9,6 @@
 
 #include <chainparams.h>
 #include <core_io.h>
-#include <fs.h>
 #include <kernel/mempool_entry.h>
 #include <node/mempool_persist_args.h>
 #include <policy/rbf.h>
@@ -20,12 +19,14 @@
 #include <rpc/util.h>
 #include <txmempool.h>
 #include <univalue.h>
+#include <util/fs.h>
 #include <util/moneystr.h>
 #include <util/time.h>
-#include <utility>
 #include <anduro_deposit.h>
 #include <anduro_validator.h>
 #include <coordinate/coordinate_mempool_entry.h>
+#include <utility>
+
 using kernel::DumpMempool;
 
 using node::DEFAULT_MAX_RAW_TX_FEE_RATE;
@@ -45,31 +46,25 @@ static RPCHelpMan sendrawtransaction()
             {"hexstring", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The hex string of the raw transaction"},
             {"maxfeerate", RPCArg::Type::AMOUNT, RPCArg::Default{FormatMoney(DEFAULT_MAX_RAW_TX_FEE_RATE.GetFeePerK())},
              "Reject transactions whose fee rate is higher than the specified value, expressed in " + CURRENCY_UNIT +
-                 "/kvB.\nSet to 0 to accept any fee rate.\n"},
-            {"signatures",RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "pre signed block signature details from anduro",
+                 "/kvB.\nSet to 0 to accept any fee rate."},
+            {"precommitment",RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "precommitment block signature details from anduro",
               {
                 {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
                     {
-                    {"inputs", RPCArg::Type::ARR, RPCArg::Optional::OMITTED, "pegin input details",
-                        {
-                            {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
-                                {
-                                    {"address", RPCArg::Type::STR, RPCArg::Optional::NO, "Address which will get deposit as pegin"},
-                                    {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "Pegin amount details"},
-                                    {"witness", RPCArg::Type::STR, RPCArg::Optional::NO, "Pegin witness which hold leaf and signature for particular pegin"},
-                                    {"block_height", RPCArg::Type::NUM, RPCArg::Optional::NO, "pegin block height used to sign"},
-                                    {"deposit_address", RPCArg::Type::STR, RPCArg::Optional::NO, "The anduro deposit address"},
-                                    {"burn_address", RPCArg::Type::STR, RPCArg::Optional::NO, "The anduro burn address"},
-                                },
-                            },
-                        },
-                    },
-                    {"currentkeys", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "the next current keys to sign the pegin and pegout receipts"},
-                    {"nextindex", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "the next index to be signed which refer back from anduro"},
+                        {"witness", RPCArg::Type::STR, RPCArg::Optional::NO, "Witness which hold leaf and signature for particular precommitment"},
+                        {"block_height", RPCArg::Type::NUM, RPCArg::Optional::NO, "pegin block height used to sign"},
+                        {"deposit_address", RPCArg::Type::STR, RPCArg::Optional::NO, "The anduro deposit address"},
+                        {"burn_address", RPCArg::Type::STR, RPCArg::Optional::NO, "The anduro burn address"},
+                        {"nextkeys", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "the next current keys to sign the pegin and pegout receipts"},
+                        {"nextindex", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "the next index to be signed which refer back from anduro"},
                     }
                 }
               }
             },
+            {"maxburnamount", RPCArg::Type::AMOUNT, RPCArg::Default{FormatMoney(0)},
+             "Reject transactions with provably unspendable outputs (e.g. 'datacarrier' outputs that use the OP_RETURN opcode) greater than the specified value, expressed in " + CURRENCY_UNIT + ".\n"
+             "If burning funds through unspendable outputs is desired, increase this value.\n"
+             "This check is based on heuristics and does not guarantee spendability of outputs.\n"},
         },
         RPCResult{
             RPCResult::Type::STR_HEX, "", "The transaction hash in hex"
@@ -86,79 +81,98 @@ static RPCHelpMan sendrawtransaction()
                 },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
         {
-            if(!request.params[2].isNull()) {
-                ChainstateManager& chainman = EnsureAnyChainman(request.context);
-                const UniValue& main_params = request.params[2].get_array();
-                if(main_params.size() > 0) {
-                    std::vector<AnduroTxOut> tOuts;
-                    std::vector<AnduroTxOut> mainOuts;
-                    for (unsigned int idx = 0; idx < main_params.size(); idx++) {
-                        const UniValue& fedParams = main_params[idx].get_obj();
-                        RPCTypeCheckObj(fedParams,
-                        {
-                            {"inputs", UniValueType(UniValue::VARR)},
-                            {"nextindex", UniValueType(UniValue::VNUM)},
-                            {"currentkeys", UniValueType(UniValue::VSTR)},
-                        });
-                        const UniValue output_params = find_value(fedParams, "inputs").get_array();
-        
-                        for (unsigned int idx = 0; idx < output_params.size(); idx++) {
-                            const UniValue& o = output_params[idx].get_obj();
-                            RPCTypeCheckObj(o,
-                            {
-                                {"address", UniValueType(UniValue::VSTR)},
-                                {"amount", UniValueType(UniValue::VNUM)},
-                                {"witness", UniValueType(UniValue::VSTR)},
-                                {"block_height", UniValueType(UniValue::VNUM)},
-                                {"deposit_address", UniValueType(UniValue::VSTR)},
-                                {"burn_address", UniValueType(UniValue::VSTR)},
-                            });
-                            const CTxDestination coinbaseScript = DecodeDestination( find_value(o, "address").get_str());
-                            const CScript scriptPubKey = GetScriptForDestination(coinbaseScript);
-                            AnduroTxOut out(AmountFromValue(find_value(o, "amount")), scriptPubKey, find_value(o, "witness").get_str(), find_value(o, "block_height").getInt<int32_t>(),find_value(fedParams, "nextindex").getInt<int32_t>(),find_value(fedParams, "currentkeys").get_str(),find_value(o, "deposit_address").get_str(),find_value(o, "burn_address").get_str());
-
-                            tOuts.push_back(out);
-                        }
-                        if(!isSpecialTxoutValid(tOuts,chainman)) {
-                            throw JSONRPCError(RPC_WALLET_ERROR, "Coinbase Special Txout is invalid");
-                        }
-                        for (const AnduroTxOut& txOut : tOuts) {
-                            mainOuts.push_back(txOut);
-                        }
-                        tOuts.clear();
-                    }
-                    includePreSignedSignature(mainOuts);
-                    return "success";
-                }
-            }
-            
             CMutableTransaction mtx;
             if (!DecodeHexTx(mtx, request.params[0].get_str())) {
                 throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed. Make sure the tx has at least one input.");
             }
+
             CTransactionRef tx(MakeTransactionRef(std::move(mtx)));
+
             const CFeeRate max_raw_tx_fee_rate = request.params[1].isNull() ?
-                                                    DEFAULT_MAX_RAW_TX_FEE_RATE :
-                                                    CFeeRate(AmountFromValue(request.params[1]));
+                                                     DEFAULT_MAX_RAW_TX_FEE_RATE :
+                                                     CFeeRate(AmountFromValue(request.params[1]));
 
             int64_t virtual_size = GetVirtualTransactionSize(*tx);
             CAmount max_raw_tx_fee = max_raw_tx_fee_rate.GetFee(virtual_size);
+
             std::string err_string;
             AssertLockNotHeld(cs_main);
             NodeContext& node = EnsureAnyNodeContext(request.context);
-            const CTransaction& ptx = *tx;  
-            
             const TransactionError err = BroadcastTransaction(node, tx, err_string, max_raw_tx_fee, /*relay=*/true, /*wait_callback=*/true);
             if (TransactionError::OK != err) {
                 throw JSONRPCTransactionError(err, err_string);
             }
-                
+
             return tx->GetHash().GetHex();
-            
         },
     };
 }
 
+
+static RPCHelpMan sendprecommitment()
+{
+    return RPCHelpMan{"sendprecommitment",
+        "\nThis is the rpc call used to send precommitment from anduro federation to coordinate node \n",
+        {
+
+            {"precommitment",RPCArg::Type::ARR, RPCArg::Optional::NO, "precommitment block signature details from anduro",
+              {
+                {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
+                    {
+                        {"witness", RPCArg::Type::STR, RPCArg::Optional::NO, "Witness which hold leaf and signature for particular precommitment"},
+                        {"block_height", RPCArg::Type::NUM, RPCArg::Optional::NO, "pegin block height used to sign"},
+                        {"deposit_address", RPCArg::Type::STR, RPCArg::Optional::NO, "The anduro deposit address"},
+                        {"burn_address", RPCArg::Type::STR, RPCArg::Optional::NO, "The anduro burn address"},
+                        {"nextkeys", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "the next current keys to sign the pegin and pegout receipts"},
+                        {"nextindex", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "the next index to be signed which refer back from anduro"},
+                    }
+                }
+              }
+            },
+        },
+        RPCResult{
+            RPCResult::Type::STR_HEX, "", "The transaction hash in hex"
+        },
+        RPCExamples{
+            "\nSend precommitment from anduro\n"
+            + HelpExampleCli("sendprecommitment", "\"[{\\\"witness\\\"}]\" \"depositaddress\" \"burnaddress\" \"nextkeys\" \"nextindex\" ")
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
+        {
+            ChainstateManager& chainman = EnsureAnyChainman(request.context);
+            const UniValue& main_params = request.params[0].get_array();
+
+            if(main_params.size() == 0) {
+                    throw JSONRPCError(RPC_WALLET_ERROR, "no commitment summited");
+            }
+
+            if(main_params.size() > 0) {
+                std::vector<AnduroPreCommitment> commitments;
+                for (unsigned int idx = 0; idx < main_params.size(); idx++) {
+                    const UniValue& fedParams = main_params[idx].get_obj();
+                    RPCTypeCheckObj(fedParams,
+                    {
+                        {"witness", UniValueType(UniValue::VSTR)},
+                        {"block_height", UniValueType(UniValue::VNUM)},
+                        {"nextindex", UniValueType(UniValue::VNUM)},
+                        {"nextkeys", UniValueType(UniValue::VSTR)},
+                        {"deposit_address", UniValueType(UniValue::VSTR)},
+                        {"burn_address", UniValueType(UniValue::VSTR)},
+                    });
+                    AnduroPreCommitment commitment(fedParams.find_value( "witness").get_str(), 
+                    fedParams.find_value("block_height").getInt<int32_t>(),fedParams.find_value("nextindex").getInt<int32_t>(),fedParams.find_value("nextkeys").get_str(),fedParams.find_value("deposit_address").get_str(),fedParams.find_value("burn_address").get_str());
+                    commitments.push_back(commitment);
+                }
+                if(!isPreCommitmentValid(commitments,chainman)) {
+                        throw JSONRPCError(RPC_WALLET_ERROR, "Coinbase Special Txout is invalid");
+                }
+                includePreCommitmentSignature(commitments);
+                return "success";
+            }
+            throw JSONRPCError(RPC_WALLET_ERROR, "no commitment summited");
+        }
+    };
+}
 
 
 static RPCHelpMan testmempoolaccept()
@@ -411,8 +425,8 @@ UniValue MempoolToJSON(const CTxMemPool& pool, bool verbose, bool include_mempoo
             entryToJSON(pool, info, e);
             // Mempool has unique entries so there is no advantage in using
             // UniValue::pushKV, which checks if the key already exists in O(N).
-            // UniValue::__pushKV is used instead which currently is O(1).
-            o.__pushKV(hash.ToString(), info);
+            // UniValue::pushKVEnd is used instead which currently is O(1).
+            o.pushKVEnd(hash.ToString(), info);
         }
         return o;
     } else {
@@ -698,7 +712,7 @@ static RPCHelpMan gettxspendingprevout()
                                 }, /*fAllowNull=*/false, /*fStrict=*/true);
 
                 const uint256 txid(ParseHashO(o, "txid"));
-                const int nOutput{find_value(o, "vout").getInt<int>()};
+                const int nOutput{o.find_value("vout").getInt<int>()};
                 if (nOutput < 0) {
                     throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, vout cannot be negative");
                 }
@@ -756,7 +770,7 @@ static RPCHelpMan getmempoolinfo()
         RPCResult{
             RPCResult::Type::OBJ, "", "",
             {
-                {RPCResult::Type::BOOL, "loaded", "True if the mempool is fully loaded"},
+                {RPCResult::Type::BOOL, "loaded", "True if the initial load attempt of the persisted mempool finished"},
                 {RPCResult::Type::NUM, "size", "Current tx count"},
                 {RPCResult::Type::NUM, "bytes", "Sum of all virtual transaction sizes as defined in BIP 141. Differs from actual serialized size because witness data is discounted"},
                 {RPCResult::Type::NUM, "usage", "Total memory usage for the mempool"},
@@ -776,6 +790,67 @@ static RPCHelpMan getmempoolinfo()
 {
     return MempoolInfoToJSON(EnsureAnyMemPool(request.context));
 },
+    };
+}
+
+static RPCHelpMan importmempool()
+{
+    return RPCHelpMan{
+        "importmempool",
+        "Import a mempool.dat file and attempt to add its contents to the mempool.\n"
+        "Warning: Importing untrusted files is dangerous, especially if metadata from the file is taken over.",
+        {
+            {"filepath", RPCArg::Type::STR, RPCArg::Optional::NO, "The mempool file"},
+            {"options",
+             RPCArg::Type::OBJ_NAMED_PARAMS,
+             RPCArg::Optional::OMITTED,
+             "",
+             {
+                 {"use_current_time", RPCArg::Type::BOOL, RPCArg::Default{true},
+                  "Whether to use the current system time or use the entry time metadata from the mempool file.\n"
+                  "Warning: Importing untrusted metadata may lead to unexpected issues and undesirable behavior."},
+                 {"apply_fee_delta_priority", RPCArg::Type::BOOL, RPCArg::Default{false},
+                  "Whether to apply the fee delta metadata from the mempool file.\n"
+                  "It will be added to any existing fee deltas.\n"
+                  "The fee delta can be set by the prioritisetransaction RPC.\n"
+                  "Warning: Importing untrusted metadata may lead to unexpected issues and undesirable behavior.\n"
+                  "Only set this bool if you understand what it does."},
+                 {"apply_unbroadcast_set", RPCArg::Type::BOOL, RPCArg::Default{false},
+                  "Whether to apply the unbroadcast set metadata from the mempool file.\n"
+                  "Warning: Importing untrusted metadata may lead to unexpected issues and undesirable behavior."},
+             },
+             RPCArgOptions{.oneline_description = "options"}},
+        },
+        RPCResult{RPCResult::Type::OBJ, "", "", std::vector<RPCResult>{}},
+        RPCExamples{HelpExampleCli("importmempool", "/path/to/mempool.dat") + HelpExampleRpc("importmempool", "/path/to/mempool.dat")},
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            const NodeContext& node{EnsureAnyNodeContext(request.context)};
+
+            CTxMemPool& mempool{EnsureMemPool(node)};
+            ChainstateManager& chainman = EnsureChainman(node);
+            Chainstate& chainstate = chainman.ActiveChainstate();
+
+            if (chainman.IsInitialBlockDownload()) {
+                throw JSONRPCError(RPC_CLIENT_IN_INITIAL_DOWNLOAD, "Can only import the mempool after the block download and sync is done.");
+            }
+
+            const fs::path load_path{fs::u8path(request.params[0].get_str())};
+            const UniValue& use_current_time{request.params[1]["use_current_time"]};
+            const UniValue& apply_fee_delta{request.params[1]["apply_fee_delta_priority"]};
+            const UniValue& apply_unbroadcast{request.params[1]["apply_unbroadcast_set"]};
+            kernel::ImportMempoolOptions opts{
+                .use_current_time = use_current_time.isNull() ? true : use_current_time.get_bool(),
+                .apply_fee_delta_priority = apply_fee_delta.isNull() ? false : apply_fee_delta.get_bool(),
+                .apply_unbroadcast_set = apply_unbroadcast.isNull() ? false : apply_unbroadcast.get_bool(),
+            };
+
+            if (!kernel::LoadMempool(mempool, load_path, chainstate, std::move(opts))) {
+                throw JSONRPCError(RPC_MISC_ERROR, "Unable to import mempool file, see debug.log for details.");
+            }
+
+            UniValue ret{UniValue::VOBJ};
+            return ret;
+        },
     };
 }
 
@@ -819,11 +894,11 @@ static RPCHelpMan savemempool()
 static RPCHelpMan submitpackage()
 {
     return RPCHelpMan{"submitpackage",
-        "Submit a package of raw transactions (serialized, hex-encoded) to local node (-regtest only).\n"
+        "Submit a package of raw transactions (serialized, hex-encoded) to local node.\n"
+        "The package must consist of a child with its parents, and none of the parents may depend on one another.\n"
         "The package will be validated according to consensus and mempool policy rules. If all transactions pass, they will be accepted to mempool.\n"
         "This RPC is experimental and the interface may be unstable. Refer to doc/policy/packages.md for documentation on package policies.\n"
-        "Warning: until package relay is in use, successful submission does not mean the transaction will propagate to other nodes on the network.\n"
-        "Currently, each transaction is broadcasted individually after submission, which means they must meet other nodes' feerate requirements alone.\n"
+        "Warning: successful submission does not mean the transactions will propagate throughout the network.\n"
         ,
         {
             {"package", RPCArg::Type::ARR, RPCArg::Optional::NO, "An array of raw transactions.",
@@ -862,9 +937,6 @@ static RPCHelpMan submitpackage()
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
         {
-            if (!Params().IsMockableChain()) {
-                throw std::runtime_error("submitpackage is for regression testing (-regtest mode) only");
-            }
             const UniValue raw_transactions = request.params[0].get_array();
             if (raw_transactions.size() < 1 || raw_transactions.size() > MAX_PACKAGE_COUNT) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER,
@@ -880,6 +952,9 @@ static RPCHelpMan submitpackage()
                                        "TX decode failed: " + rawtx.get_str() + " Make sure the tx has at least one input.");
                 }
                 txns.emplace_back(MakeTransactionRef(std::move(mtx)));
+            }
+            if (!IsChildWithParentsTree(txns)) {
+                throw JSONRPCTransactionError(TransactionError::INVALID_PACKAGE, "package topology disallowed. not child-with-parents or parents depend on each other.");
             }
 
             NodeContext& node = EnsureAnyNodeContext(request.context);
@@ -913,15 +988,16 @@ static RPCHelpMan submitpackage()
                     NONFATAL_UNREACHABLE();
                 }
             }
+            size_t num_broadcast{0};
             for (const auto& tx : txns) {
-                size_t num_submitted{0};
                 std::string err_string;
-                const auto err = BroadcastTransaction(node, tx, err_string, 0, true, true);
+                const auto err = BroadcastTransaction(node, tx, err_string, /*max_tx_fee=*/0, /*relay=*/true, /*wait_callback=*/true);
                 if (err != TransactionError::OK) {
                     throw JSONRPCTransactionError(err,
                         strprintf("transaction broadcast failed: %s (all transactions were submitted, %d transactions were broadcast successfully)",
-                            err_string, num_submitted));
+                            err_string, num_broadcast));
                 }
+                num_broadcast++;
             }
             UniValue rpc_result{UniValue::VOBJ};
             UniValue tx_result_map{UniValue::VOBJ};
@@ -969,10 +1045,101 @@ static RPCHelpMan submitpackage()
     };
 }
 
+static RPCHelpMan getpreconfmempoolinfo()
+{
+    return RPCHelpMan{"getpreconfmempoolinfo",
+        "Returns details on the active state of the TX preconf memory pool.",
+        {},
+        RPCResult{
+            RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::BOOL, "loaded", "True if the mempool is fully loaded"},
+                {RPCResult::Type::NUM, "size", "Current tx count"},
+                {RPCResult::Type::NUM, "bytes", "Sum of all virtual transaction sizes as defined in BIP 141. Differs from actual serialized size because witness data is discounted"},
+                {RPCResult::Type::NUM, "usage", "Total memory usage for the mempool"},
+                {RPCResult::Type::STR_AMOUNT, "total_fee", "Total fees for the mempool in " + CURRENCY_UNIT + ", ignoring modified fees through prioritisetransaction"},
+                {RPCResult::Type::NUM, "maxmempool", "Maximum memory usage for the mempool"},
+                {RPCResult::Type::STR_AMOUNT, "mempoolminfee", "Minimum fee rate in " + CURRENCY_UNIT + "/kvB for tx to be accepted. Is the maximum of minrelaytxfee and minimum mempool fee"},
+                {RPCResult::Type::STR_AMOUNT, "minrelaytxfee", "Current minimum relay fee for transactions"},
+                {RPCResult::Type::NUM, "incrementalrelayfee", "minimum fee rate increment for mempool limiting or replacement in " + CURRENCY_UNIT + "/kvB"},
+                {RPCResult::Type::NUM, "unbroadcastcount", "Current number of transactions that haven't passed initial broadcast yet"},
+                {RPCResult::Type::BOOL, "fullrbf", "True if the mempool accepts RBF without replaceability signaling inspection"},
+            }},
+        RPCExamples{
+            HelpExampleCli("getpreconfmempoolinfo", "")
+            + HelpExampleRpc("getpreconfmempoolinfo", "")
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
+{
+            ChainstateManager& chainman = EnsureAnyChainman(request.context);
+            LOCK(cs_main);
+            const CTxMemPool& preconf_pool{*chainman.ActiveChainstate().GetPreConfMempool()};
+            return MempoolInfoToJSON(preconf_pool);
+},
+    };
+}
+
+
+static RPCHelpMan getrawpreconfmempool()
+{
+    return RPCHelpMan{"getrawpreconfmempool",
+        "\nReturns all transaction ids in preconf memory pool as a json array of string transaction ids.\n"
+        "\nHint: use getmempoolentry to fetch a specific transaction from the mempool.\n",
+        {
+            {"verbose", RPCArg::Type::BOOL, RPCArg::Default{false}, "True for a json object, false for array of transaction ids"},
+            {"mempool_sequence", RPCArg::Type::BOOL, RPCArg::Default{false}, "If verbose=false, returns a json object with transaction list and mempool sequence number attached."},
+        },
+        {
+            RPCResult{"for verbose = false",
+                RPCResult::Type::ARR, "", "",
+                {
+                    {RPCResult::Type::STR_HEX, "", "The transaction id"},
+                }},
+            RPCResult{"for verbose = true",
+                RPCResult::Type::OBJ_DYN, "", "",
+                {
+                    {RPCResult::Type::OBJ, "transactionid", "", MempoolEntryDescription()},
+                }},
+            RPCResult{"for verbose = false and mempool_sequence = true",
+                RPCResult::Type::OBJ, "", "",
+                {
+                    {RPCResult::Type::ARR, "txids", "",
+                    {
+                        {RPCResult::Type::STR_HEX, "", "The transaction id"},
+                    }},
+                    {RPCResult::Type::NUM, "mempool_sequence", "The mempool sequence value."},
+                }},
+        },
+        RPCExamples{
+            HelpExampleCli("getrawpreconfmempool", "true")
+            + HelpExampleRpc("getrawpreconfmempool", "true")
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
+{
+    bool fVerbose = false;
+    if (!request.params[0].isNull())
+        fVerbose = request.params[0].get_bool();
+
+    bool include_mempool_sequence = false;
+    if (!request.params[1].isNull()) {
+        include_mempool_sequence = request.params[1].get_bool();
+    }
+    ChainstateManager& chainman = EnsureAnyChainman(request.context);
+    LOCK(cs_main);
+    const CTxMemPool& preconf_pool{*chainman.ActiveChainstate().GetPreConfMempool()};
+    return MempoolToJSON(preconf_pool, fVerbose, include_mempool_sequence);
+},
+    };
+}
+
+
+
+
 void RegisterMempoolRPCCommands(CRPCTable& t)
 {
     static const CRPCCommand commands[]{
         {"rawtransactions", &sendrawtransaction},
+        {"rawtransactions", &sendprecommitment},
         {"rawtransactions", &testmempoolaccept},
         {"blockchain", &getmempoolancestors},
         {"blockchain", &getmempooldescendants},
@@ -980,8 +1147,11 @@ void RegisterMempoolRPCCommands(CRPCTable& t)
         {"blockchain", &gettxspendingprevout},
         {"blockchain", &getmempoolinfo},
         {"blockchain", &getrawmempool},
+        {"blockchain", &importmempool},
         {"blockchain", &savemempool},
-        {"hidden", &submitpackage},
+        {"rawtransactions", &submitpackage},
+        {"preconf", &getpreconfmempoolinfo},
+        {"preconf", &getrawpreconfmempool},
     };
     for (const auto& c : commands) {
         t.appendCommand(c.name, &c);

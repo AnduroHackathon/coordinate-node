@@ -2,19 +2,21 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef BITCOIN_WALLET_SCRIPTPUBKEYMAN_H
-#define BITCOIN_WALLET_SCRIPTPUBKEYMAN_H
+#ifndef COORDINATE_WALLET_SCRIPTPUBKEYMAN_H
+#define COORDINATE_WALLET_SCRIPTPUBKEYMAN_H
 
+#include <addresstype.h>
+#include <logging.h>
 #include <psbt.h>
 #include <script/descriptor.h>
+#include <script/script.h>
 #include <script/signingprovider.h>
-#include <script/standard.h>
 #include <util/error.h>
 #include <util/message.h>
 #include <util/result.h>
 #include <util/time.h>
 #include <wallet/crypter.h>
-#include <wallet/ismine.h>
+#include <wallet/types.h>
 #include <wallet/walletdb.h>
 #include <wallet/walletutil.h>
 
@@ -27,6 +29,8 @@ enum class OutputType;
 struct bilingual_str;
 
 namespace wallet {
+struct MigrationData;
+
 // Wallet storage things that ScriptPubKeyMans need in order to be able to store things to the wallet database.
 // It provides access to things that are part of the entire wallet and not specific to a ScriptPubKeyMan such as
 // wallet flags, wallet version, encryption keys, encryption status, and the database itself. This allows a
@@ -36,7 +40,7 @@ class WalletStorage
 {
 public:
     virtual ~WalletStorage() = default;
-    virtual const std::string GetDisplayName() const = 0;
+    virtual std::string GetDisplayName() const = 0;
     virtual WalletDatabase& GetDatabase() const = 0;
     virtual bool IsWalletFlagSet(uint64_t) const = 0;
     virtual void UnsetBlankWalletFlag(WalletBatch&) = 0;
@@ -119,20 +123,14 @@ public:
     template<typename Stream>
     void Serialize(Stream& s) const
     {
-        int nVersion = s.GetVersion();
-        if (!(s.GetType() & SER_GETHASH)) {
-            s << nVersion;
-        }
+        s << int{259900}; // Unused field, writes the highest client version ever written
         s << nTime << vchPubKey << fInternal << m_pre_split;
     }
 
     template<typename Stream>
     void Unserialize(Stream& s)
     {
-        int nVersion = s.GetVersion();
-        if (!(s.GetType() & SER_GETHASH)) {
-            s >> nVersion;
-        }
+        s >> int{}; // Discard unused field
         s >> nTime >> vchPubKey;
         try {
             s >> fInternal;
@@ -243,12 +241,13 @@ public:
     virtual uint256 GetID() const { return uint256(); }
 
     /** Returns a set of all the scriptPubKeys that this ScriptPubKeyMan watches */
-    virtual const std::unordered_set<CScript, SaltedSipHasher> GetScriptPubKeys() const { return {}; };
+    virtual std::unordered_set<CScript, SaltedSipHasher> GetScriptPubKeys() const { return {}; };
 
     /** Prepends the wallet name in logging output to ease debugging in multi-wallet use cases */
-    template<typename... Params>
-    void WalletLogPrintf(std::string fmt, Params... parameters) const {
-        LogPrintf(("%s " + fmt).c_str(), m_storage.GetDisplayName(), parameters...);
+    template <typename... Params>
+    void WalletLogPrintf(const char* fmt, Params... parameters) const
+    {
+        LogPrintf(("%s " + std::string{fmt}).c_str(), m_storage.GetDisplayName(), parameters...);
     };
 
     /** Watch-only address added */
@@ -256,6 +255,9 @@ public:
 
     /** Keypool has new keys */
     boost::signals2::signal<void ()> NotifyCanGetAddressesChanged;
+
+    /** Birth time changed */
+    boost::signals2::signal<void (const ScriptPubKeyMan* spkm, int64_t new_birth_time)> NotifyFirstKeyTimeChanged;
 };
 
 /** OutputTypes supported by the LegacyScriptPubKeyMan */
@@ -285,6 +287,9 @@ private:
     WatchKeyMap mapWatchKeys GUARDED_BY(cs_KeyStore);
 
     int64_t nTimeFirstKey GUARDED_BY(cs_KeyStore) = 0;
+
+    //! Number of pre-generated keys/scripts (part of the look-ahead process, used to detect payments)
+    int64_t m_keypool_size GUARDED_BY(cs_KeyStore){DEFAULT_KEYPOOL_SIZE};
 
     bool AddKeyPubKeyInner(const CKey& key, const CPubKey &pubkey);
     bool AddCryptedKeyInner(const CPubKey &vchPubKey, const std::vector<unsigned char> &vchCryptedSecret);
@@ -331,7 +336,7 @@ private:
     std::map<int64_t, CKeyID> m_index_to_reserved_key;
 
     //! Fetches a key from the keypool
-    bool GetKeyFromPool(CPubKey &key, const OutputType type, bool internal = false);
+    bool GetKeyFromPool(CPubKey &key, const OutputType type);
 
     /**
      * Reserves a key from the keypool and sets nIndex to its index
@@ -363,7 +368,7 @@ private:
 
     bool TopUpChain(CHDChain& chain, unsigned int size);
 public:
-    using ScriptPubKeyMan::ScriptPubKeyMan;
+    LegacyScriptPubKeyMan(WalletStorage& storage, int64_t keypool_size) : ScriptPubKeyMan(storage), m_keypool_size(keypool_size) {}
 
     util::Result<CTxDestination> GetNewDestination(const OutputType type) override;
     isminetype IsMine(const CScript& script) const override;
@@ -512,7 +517,13 @@ public:
     const std::map<CKeyID, int64_t>& GetAllReserveKeys() const { return m_pool_key_to_index; }
 
     std::set<CKeyID> GetKeys() const override;
-    const std::unordered_set<CScript, SaltedSipHasher> GetScriptPubKeys() const override;
+    std::unordered_set<CScript, SaltedSipHasher> GetScriptPubKeys() const override;
+
+    /**
+     * Retrieves scripts that were imported by bugs into the legacy spkm and are
+     * simply invalid, such as a sh(sh(pkh())) script, or not watched.
+     */
+    std::unordered_set<CScript, SaltedSipHasher> GetNotMineScriptPubKeys() const;
 
     /** Get the DescriptorScriptPubKeyMans (with private keys) that have the same scriptPubKeys as this LegacyScriptPubKeyMan.
      * Does not modify this ScriptPubKeyMan. */
@@ -555,6 +566,9 @@ private:
     //! keeps track of whether Unlock has run a thorough check before
     bool m_decryption_thoroughly_checked = false;
 
+    //! Number of pre-generated keys/scripts (part of the look-ahead process, used to detect payments)
+    int64_t m_keypool_size GUARDED_BY(cs_desc_man){DEFAULT_KEYPOOL_SIZE};
+
     bool AddDescriptorKeyWithDB(WalletBatch& batch, const CKey& key, const CPubKey &pubkey) EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);
 
     KeyMap GetKeys() const EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);
@@ -572,12 +586,14 @@ protected:
   WalletDescriptor m_wallet_descriptor GUARDED_BY(cs_desc_man);
 
 public:
-    DescriptorScriptPubKeyMan(WalletStorage& storage, WalletDescriptor& descriptor)
+    DescriptorScriptPubKeyMan(WalletStorage& storage, WalletDescriptor& descriptor, int64_t keypool_size)
         :   ScriptPubKeyMan(storage),
+            m_keypool_size(keypool_size),
             m_wallet_descriptor(descriptor)
         {}
-    DescriptorScriptPubKeyMan(WalletStorage& storage)
-        :   ScriptPubKeyMan(storage)
+    DescriptorScriptPubKeyMan(WalletStorage& storage, int64_t keypool_size)
+        :   ScriptPubKeyMan(storage),
+            m_keypool_size(keypool_size)
         {}
 
     mutable RecursiveMutex cs_desc_man;
@@ -641,15 +657,27 @@ public:
     void AddDescriptorKey(const CKey& key, const CPubKey &pubkey);
     void WriteDescriptor();
 
-    const WalletDescriptor GetWalletDescriptor() const EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);
-    const std::unordered_set<CScript, SaltedSipHasher> GetScriptPubKeys() const override;
-    const std::unordered_set<CScript, SaltedSipHasher> GetScriptPubKeys(int32_t minimum_index) const;
+    WalletDescriptor GetWalletDescriptor() const EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);
+    std::unordered_set<CScript, SaltedSipHasher> GetScriptPubKeys() const override;
+    std::unordered_set<CScript, SaltedSipHasher> GetScriptPubKeys(int32_t minimum_index) const;
     int32_t GetEndRange() const;
 
     bool GetDescriptorString(std::string& out, const bool priv) const;
 
     void UpgradeDescriptorCache();
 };
+
+/** struct containing information needed for migrating legacy wallets to descriptor wallets */
+struct MigrationData
+{
+    CExtKey master_key;
+    std::vector<std::pair<std::string, int64_t>> watch_descs;
+    std::vector<std::pair<std::string, int64_t>> solvable_descs;
+    std::vector<std::unique_ptr<DescriptorScriptPubKeyMan>> desc_spkms;
+    std::shared_ptr<CWallet> watchonly_wallet{nullptr};
+    std::shared_ptr<CWallet> solvable_wallet{nullptr};
+};
+
 } // namespace wallet
 
-#endif // BITCOIN_WALLET_SCRIPTPUBKEYMAN_H
+#endif // COORDINATE_WALLET_SCRIPTPUBKEYMAN_H

@@ -4,9 +4,9 @@
 
 #include <node/caches.h>
 
+#include <common/args.h>
 #include <index/txindex.h>
 #include <txdb.h>
-#include <util/system.h>
 
 namespace node {
 CacheSizes CalculateCacheSizes(const ArgsManager& args, size_t n_indexes)
@@ -26,6 +26,10 @@ CacheSizes CalculateCacheSizes(const ArgsManager& args, size_t n_indexes)
     nTotalCache -= nCoordinateAssetDBCache;
 
 
+    int64_t nSignedBlockDBCache = nTotalCache / 8;
+    if (nSignedBlockDBCache > (1 << 21))
+        nSignedBlockDBCache = (1 << 21);
+    nTotalCache -= nSignedBlockDBCache;
 
     sizes.filter_index = 0;
     if (n_indexes > 0) {

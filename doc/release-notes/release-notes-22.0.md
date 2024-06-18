@@ -21,7 +21,7 @@ How to Upgrade
 
 If you are running an older version, shut it down. Wait until it has completely
 shut down (which might take a few minutes in some cases), then run the
-installer (on Windows) or just copy over `/Applications/Bitcoin-Qt` (on Mac)
+installer (on Windows) or just copy over `/Applications/Coordinate-Qt` (on Mac)
 or `coordinated`/`coordinate-qt` (on Linux).
 
 Upgrading directly from a version of Bitcoin Core that has reached its EOL is
@@ -95,7 +95,7 @@ New and Updated RPCs
   of `decodescript` these fields are top-level attributes, and included again as attributes
   of the `scriptPubKey` object. (#20286)
 
-- When creating a hex-encoded bitcoin transaction using the `bitcoin-tx` utility
+- When creating a hex-encoded bitcoin transaction using the `coordinate-tx` utility
   with the `-json` option set, the following fields: `addresses`, `reqSigs` are no longer
   returned in the tx output of the response. (#20286)
 
@@ -571,7 +571,7 @@ A detailed list of changes in this version follows. To keep the list to a manage
 - bitcoin/bitcoin#20936 build fuzz tests by default (danben)
 - bitcoin/bitcoin#20937 guix: Make nsis reproducible by respecting SOURCE-DATE-EPOCH (dongcarl)
 - bitcoin/bitcoin#20938 fix linking against -latomic when building for riscv (fanquake)
-- bitcoin/bitcoin#20939 fix `RELOC_SECTION` security check for bitcoin-util (fanquake)
+- bitcoin/bitcoin#20939 fix `RELOC_SECTION` security check for coordinate-util (fanquake)
 - bitcoin/bitcoin#20963 gitian-linux: Build binaries for 64-bit POWER (continued) (laanwj)
 - bitcoin/bitcoin#21036 gitian: Bump descriptors to focal for 22.0 (fanquake)
 - bitcoin/bitcoin#21045 Adds switch to enable/disable randomized base address in MSVC builds (EthanHeilman)
@@ -857,7 +857,7 @@ A detailed list of changes in this version follows. To keep the list to a manage
 - bitcoin/bitcoin#22224 Update msvc and appveyor builds to use Qt5.12.11 binaries (sipsorcery)
 - bitcoin/bitcoin#22249 Kill process group to avoid dangling processes when using `--failfast` (S3RK)
 - bitcoin/bitcoin#22267 fuzz: Speed up crypto fuzz target (MarcoFalke)
-- bitcoin/bitcoin#22270 Add bitcoin-util tests (+refactors) (MarcoFalke)
+- bitcoin/bitcoin#22270 Add coordinate-util tests (+refactors) (MarcoFalke)
 - bitcoin/bitcoin#22271 fuzz: Assert roundtrip equality for `CPubKey` (theStack)
 - bitcoin/bitcoin#22279 fuzz: add missing ECCVerifyHandle to `base_encode_decode` (apoelstra)
 - bitcoin/bitcoin#22292 bench, doc: benchmarking updates and fixups (jonatack)
@@ -893,7 +893,7 @@ A detailed list of changes in this version follows. To keep the list to a manage
 - bitcoin/bitcoin#20605 init: Signal-safe instant shutdown (laanwj)
 - bitcoin/bitcoin#20608 contrib: Add symbol check test for PE binaries (fanquake)
 - bitcoin/bitcoin#20689 contrib: Replace binary verification script verify.sh with python rewrite (theStack)
-- bitcoin/bitcoin#20715 util: Add argsmanager::getcommand() and use it in bitcoin-wallet (MarcoFalke)
+- bitcoin/bitcoin#20715 util: Add argsmanager::getcommand() and use it in coordinate-wallet (MarcoFalke)
 - bitcoin/bitcoin#20735 script: Remove outdated extract-osx-sdk.sh (hebasto)
 - bitcoin/bitcoin#20817 lint: Update list of spelling linter false positives, bump to codespell 2.0.0 (theStack)
 - bitcoin/bitcoin#20884 script: Improve robustness of coordinated.service on startup (hebasto)
@@ -967,7 +967,7 @@ A detailed list of changes in this version follows. To keep the list to a manage
 - bitcoin/bitcoin#20829 Add -netinfo help (jonatack)
 - bitcoin/bitcoin#20830 Update developer notes with signet (jonatack)
 - bitcoin/bitcoin#20890 Add explicit macdeployqtplus dependencies install step (hebasto)
-- bitcoin/bitcoin#20913 Add manual page generation for bitcoin-util (laanwj)
+- bitcoin/bitcoin#20913 Add manual page generation for coordinate-util (laanwj)
 - bitcoin/bitcoin#20985 Add xorriso to macOS depends packages (fanquake)
 - bitcoin/bitcoin#20986 Update developer notes to discourage very long lines (jnewbery)
 - bitcoin/bitcoin#20987 Add instructions for generating RPC docs (ben-kaufman)

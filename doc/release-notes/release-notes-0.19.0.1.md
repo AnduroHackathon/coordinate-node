@@ -18,7 +18,7 @@ How to Upgrade
 
 If you are running an older version, shut it down. Wait until it has completely
 shut down (which might take a few minutes for older versions), then run the
-installer (on Windows) or just copy over `/Applications/Bitcoin-Qt` (on Mac)
+installer (on Windows) or just copy over `/Applications/Coordinate-Qt` (on Mac)
 or `coordinated`/`coordinate-qt` (on Linux).
 
 Upgrading directly from a version of Bitcoin Core that has reached its EOL is
@@ -443,7 +443,7 @@ Build system changes
 - #15508 Refactor analyzepsbt for use outside RPC code (gwillen)
 - #15747 Remove plethora of Get*Balance (MarcoFalke)
 - #15728 Refactor relay transactions (jnewbery)
-- #15639 bitcoin-wallet tool: Drop libbitcoin_server.a dependency (ryanofsky)
+- #15639 coordinate-wallet tool: Drop libbitcoin_server.a dependency (ryanofsky)
 - #15853 Remove unused import checkpoints.h (MarcoFalke)
 - #15780 add cachable amounts for caching credit/debit values (kallewoof)
 - #15778 Move maxtxfee from node to wallet (jnewbery)
@@ -938,7 +938,7 @@ Build system changes
 - #14862 Declare BLOCK_VALID_HEADER reserved (MarcoFalke)
 - #16806 Add issue templates for bug and feature request (MarcoFalke)
 - #16857 Elaborate need to re-login on Debian-based after usermod for Tor group (clashicly)
-- #16863 Add a missing closing parenthesis in the bitcoin-wallet's help (darosior)
+- #16863 Add a missing closing parenthesis in the coordinate-wallet's help (darosior)
 - #16757 CChainState return values (MarcoFalke)
 - #16847 add comments clarifying how local services are advertised (jamesob)
 - #16812 Fix whitespace errs in .md files, bitcoin.conf, and Info.plist.in (ch4ot1c)

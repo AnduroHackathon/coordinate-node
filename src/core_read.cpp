@@ -10,10 +10,9 @@
 #include <script/sign.h>
 #include <serialize.h>
 #include <streams.h>
-#include <univalue.h>
+#include <util/result.h>
 #include <util/strencodings.h>
 #include <version.h>
-#include <logging.h>
 
 #include <algorithm>
 #include <string>
@@ -103,7 +102,7 @@ CScript ParseScript(const std::string& s)
 
 // Check that all of the input and output scripts of a transaction contains valid opcodes
 static bool CheckTxScriptsSanity(const CMutableTransaction& tx)
-{  
+{
     // Check input scripts for non-coinbase txs
     if (!CTransaction(tx).IsCoinBase()) {
         for (unsigned int i = 0; i < tx.vin.size(); i++) {
@@ -137,9 +136,9 @@ static bool DecodeTx(CMutableTransaction& tx, const std::vector<unsigned char>& 
     //   - If only one passes the CheckTxScriptsSanity check, return that one.
     //   - If neither or both pass CheckTxScriptsSanity, return the extended one.
 
-
     CMutableTransaction tx_extended, tx_legacy;
     bool ok_extended = false, ok_legacy = false;
+
     // Try decoding with extended serialization support, and remember if the result successfully
     // consumes the entire input.
     if (try_witness) {
@@ -147,11 +146,10 @@ static bool DecodeTx(CMutableTransaction& tx, const std::vector<unsigned char>& 
         try {
             ssData >> tx_extended;
             if (ssData.empty()) ok_extended = true;
-        } catch (const std::exception& e) {
+        } catch (const std::exception&) {
             // Fall through.
         }
     }
-
 
     // Optimization: if extended decoding succeeded and the result passes CheckTxScriptsSanity,
     // don't bother decoding the other way.
@@ -159,6 +157,7 @@ static bool DecodeTx(CMutableTransaction& tx, const std::vector<unsigned char>& 
         tx = std::move(tx_extended);
         return true;
     }
+
     // Try decoding with legacy serialization, and remember if the result successfully consumes the entire input.
     if (try_no_witness) {
         CDataStream ssData(tx_data, SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS);
@@ -169,22 +168,26 @@ static bool DecodeTx(CMutableTransaction& tx, const std::vector<unsigned char>& 
             // Fall through.
         }
     }
+
     // If legacy decoding succeeded and passes CheckTxScriptsSanity, that's our answer, as we know
     // at this point that extended decoding either failed or doesn't pass the sanity check.
     if (ok_legacy && CheckTxScriptsSanity(tx_legacy)) {
         tx = std::move(tx_legacy);
         return true;
     }
+
     // If extended decoding succeeded, and neither decoding passes sanity, return the extended one.
     if (ok_extended) {
         tx = std::move(tx_extended);
         return true;
     }
+
     // If legacy decoding succeeded and extended didn't, return the legacy one.
     if (ok_legacy) {
         tx = std::move(tx_legacy);
         return true;
     }
+
     // If none succeeded, we failed.
     return false;
 }
@@ -194,6 +197,7 @@ bool DecodeHexTx(CMutableTransaction& tx, const std::string& hex_tx, bool try_no
     if (!IsHex(hex_tx)) {
         return false;
     }
+
     std::vector<unsigned char> txData(ParseHex(hex_tx));
     return DecodeTx(tx, txData, try_no_witness, try_witness);
 }
@@ -238,36 +242,21 @@ bool ParseHashStr(const std::string& strHex, uint256& result)
     return true;
 }
 
-std::vector<unsigned char> ParseHexUV(const UniValue& v, const std::string& strName)
+util::Result<int> SighashFromStr(const std::string& sighash)
 {
-    std::string strHex;
-    if (v.isStr())
-        strHex = v.getValStr();
-    if (!IsHex(strHex))
-        throw std::runtime_error(strName + " must be hexadecimal string (not '" + strHex + "')");
-    return ParseHex(strHex);
-}
-
-int ParseSighashString(const UniValue& sighash)
-{
-    int hash_type = SIGHASH_DEFAULT;
-    if (!sighash.isNull()) {
-        static std::map<std::string, int> map_sighash_values = {
-            {std::string("DEFAULT"), int(SIGHASH_DEFAULT)},
-            {std::string("ALL"), int(SIGHASH_ALL)},
-            {std::string("ALL|ANYONECANPAY"), int(SIGHASH_ALL|SIGHASH_ANYONECANPAY)},
-            {std::string("NONE"), int(SIGHASH_NONE)},
-            {std::string("NONE|ANYONECANPAY"), int(SIGHASH_NONE|SIGHASH_ANYONECANPAY)},
-            {std::string("SINGLE"), int(SIGHASH_SINGLE)},
-            {std::string("SINGLE|ANYONECANPAY"), int(SIGHASH_SINGLE|SIGHASH_ANYONECANPAY)},
-        };
-        const std::string& strHashType = sighash.get_str();
-        const auto& it = map_sighash_values.find(strHashType);
-        if (it != map_sighash_values.end()) {
-            hash_type = it->second;
-        } else {
-            throw std::runtime_error(strHashType + " is not a valid sighash parameter.");
-        }
+    static std::map<std::string, int> map_sighash_values = {
+        {std::string("DEFAULT"), int(SIGHASH_DEFAULT)},
+        {std::string("ALL"), int(SIGHASH_ALL)},
+        {std::string("ALL|ANYONECANPAY"), int(SIGHASH_ALL|SIGHASH_ANYONECANPAY)},
+        {std::string("NONE"), int(SIGHASH_NONE)},
+        {std::string("NONE|ANYONECANPAY"), int(SIGHASH_NONE|SIGHASH_ANYONECANPAY)},
+        {std::string("SINGLE"), int(SIGHASH_SINGLE)},
+        {std::string("SINGLE|ANYONECANPAY"), int(SIGHASH_SINGLE|SIGHASH_ANYONECANPAY)},
+    };
+    const auto& it = map_sighash_values.find(sighash);
+    if (it != map_sighash_values.end()) {
+        return it->second;
+    } else {
+        return util::Error{Untranslated(sighash + " is not a valid sighash parameter.")};
     }
-    return hash_type;
 }

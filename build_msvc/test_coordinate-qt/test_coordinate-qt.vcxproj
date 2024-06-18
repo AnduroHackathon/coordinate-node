@@ -8,15 +8,20 @@
     <OutDir>$(SolutionDir)$(Platform)\$(Configuration)\</OutDir>
   </PropertyGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\src\init\bitcoin-qt.cpp" />
+    <ClCompile Include="..\..\src\init\coordinate-qt.cpp" />
     <ClCompile Include="..\..\src\test\util\setup_common.cpp" />
+    <ClCompile Include="..\..\src\wallet\test\util.cpp">
+      <ObjectFileName>$(IntDir)wallet_test_util.obj</ObjectFileName>
+    </ClCompile>
     <ClCompile Include="..\..\src\qt\test\addressbooktests.cpp" />
     <ClCompile Include="..\..\src\qt\test\apptests.cpp" />
     <ClCompile Include="..\..\src\qt\test\optiontests.cpp" />
     <ClCompile Include="..\..\src\qt\test\rpcnestedtests.cpp" />
     <ClCompile Include="..\..\src\qt\test\test_main.cpp" />
     <ClCompile Include="..\..\src\qt\test\uritests.cpp" />
-    <ClCompile Include="..\..\src\qt\test\util.cpp" />
+    <ClCompile Include="..\..\src\qt\test\util.cpp">
+      <ObjectFileName>$(IntDir)qt_test_util.obj</ObjectFileName>
+    </ClCompile>
     <ClCompile Include="..\..\src\qt\test\wallettests.cpp" />
     <ClCompile Include="..\..\src\wallet\test\wallet_test_fixture.cpp" />
     <ClCompile Include="$(GeneratedFilesOutDir)\moc\moc_addressbooktests.cpp" />
@@ -27,7 +32,7 @@
     <ClCompile Include="$(GeneratedFilesOutDir)\moc\moc_wallettests.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\libbitcoinconsensus\libbitcoinconsensus.vcxproj">
+    <ProjectReference Include="..\libbitcoin_consensus\libbitcoin_consensus.vcxproj">
       <Project>{2b384fa8-9ee1-4544-93cb-0d733c25e8ce}</Project>
     </ProjectReference>
     <ProjectReference Include="..\libcoordinate_cli\libcoordinate_cli.vcxproj">
@@ -45,10 +50,10 @@
     <ProjectReference Include="..\libbitcoin_node\libbitcoin_node.vcxproj">
       <Project>{460fee33-1fe1-483f-b3bf-931ff8e969a5}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\libbitcoin_util\libbitcoin_util.vcxproj">
+    <ProjectReference Include="..\libcoordinate_util\libcoordinate_util.vcxproj">
       <Project>{b53a5535-ee9d-4c6f-9a26-f79ee3bc3754}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\libbitcoin_wallet\libbitcoin_wallet.vcxproj">
+    <ProjectReference Include="..\libcoordinate_wallet\libcoordinate_wallet.vcxproj">
       <Project>{93b86837-b543-48a5-a89b-7c87abb77df2}</Project>
     </ProjectReference>
     <ProjectReference Include="..\libbitcoin_zmq\libbitcoin_zmq.vcxproj">
@@ -100,14 +105,14 @@
   </ItemGroup>
   <Target Name="moccode" Inputs="@(MocTestFiles)" Outputs="@(MocTestFiles->'$(GeneratedFilesOutDir)\moc\moc_%(Filename).cpp')">
     <PropertyGroup>
-      <ErrorText>There was an error executing the test_bitcoin-qt moc code generation task.</ErrorText>
+      <ErrorText>There was an error executing the test_coordinate-qt moc code generation task.</ErrorText>
     </PropertyGroup>
-    <Exec Command="echo Performing test_bitcoin-qt moc generation task, output path $(GeneratedFilesOutDir)\moc." />
+    <Exec Command="echo Performing test_coordinate-qt moc generation task, output path $(GeneratedFilesOutDir)\moc." />
     <MakeDir Directories="$(GeneratedFilesOutDir)\moc\" />
     <Exec Command="$(QtToolsDir)\moc.exe $(MOC_DEFINES) &quot;%(MocTestFiles.Identity)&quot; -o $(GeneratedFilesOutDir)\moc\moc_%(Filename).cpp" />
   </Target>
   <Target Name="QtTestCleanGeneratedFiles">
-    <Exec Command="echo Clean test_bitcoin-qt generated files from $(GeneratedFilesOutDir)." />
+    <Exec Command="echo Clean test_coordinate-qt generated files from $(GeneratedFilesOutDir)." />
     <RemoveDir Directories="$(GeneratedFilesOutDir)\moc\*" />
     <RemoveDir Directories="$(GeneratedFilesOutDir)\moc" />
   </Target>

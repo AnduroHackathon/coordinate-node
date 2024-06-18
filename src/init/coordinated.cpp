@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <common/args.h>
 #include <interfaces/chain.h>
 #include <interfaces/echo.h>
 #include <interfaces/init.h>
@@ -9,7 +10,6 @@
 #include <interfaces/wallet.h>
 #include <node/context.h>
 #include <util/check.h>
-#include <util/system.h>
 
 #include <memory>
 
@@ -17,10 +17,10 @@ using node::NodeContext;
 
 namespace init {
 namespace {
-class COORDINATEDInit : public interfaces::Init
+class CoordinateInit : public interfaces::Init
 {
 public:
-    COORDINATEDInit(NodeContext& node) : m_node(node)
+    CoordinateInit(NodeContext& node) : m_node(node)
     {
         m_node.args = &gArgs;
         m_node.init = this;
@@ -40,6 +40,6 @@ public:
 namespace interfaces {
 std::unique_ptr<Init> MakeNodeInit(NodeContext& node, int argc, char* argv[], int& exit_status)
 {
-    return std::make_unique<init::COORDINATEDInit>(node);
+    return std::make_unique<init::CoordinateInit>(node);
 }
 } // namespace interfaces

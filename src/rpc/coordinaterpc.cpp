@@ -1,7 +1,6 @@
 #include <rpc/coordinaterpc.h>
 #include <rpc/util.h>
 #include <rpc/server.h>
-#include <rpc/server.h>
 #include <rpc/server_util.h>
 #include <key_io.h>
 #include <rpc/auxpow_miner.h>
@@ -122,47 +121,39 @@ static RPCHelpMan anduroWithdrawAddress()
 
 }
 
-static RPCHelpMan getPendingDeposit() {
+static RPCHelpMan getPendingCommitments() {
         return RPCHelpMan{
-        "getpendingdeposit",
-        "get all pending pegins and presign signature for next block",
+        "getpendingcommitment",
+        "get all pending precommitment signature for next block",
         {
         },
         RPCResult{
             RPCResult::Type::OBJ, "", "",
             {
-                {RPCResult::Type::ARR, "deposits", "",
+                {RPCResult::Type::ARR, "commitments", "",
                 {
                      {RPCResult::Type::OBJ, "", "",
                         {
-                            {RPCResult::Type::STR_AMOUNT, "value", "The value in " + CURRENCY_UNIT},
-                            {RPCResult::Type::NUM, "n", "index"},
                             {RPCResult::Type::NUM, "n", "block_height"},
                         }
                      }
                 }},
-                {RPCResult::Type::STR_AMOUNT, "total", /*optional=*/true, "return total pending balance"},
             },
         },
         RPCExamples{
-           HelpExampleCli("getpendingdeposit", "")
+           HelpExampleCli("getpendingcommitment", "")
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
         {
                 UniValue result(UniValue::VOBJ);
-                result.pushKV("total", ValueFromAmount(listPendingDepositTotal(-1)));
-                UniValue deposits(UniValue::VARR);
-                std::vector<AnduroTxOut> txList = listPendingDepositTransaction(-1);
-                uint64_t index = 0;
-                for (const AnduroTxOut& eout : txList) {
-                    UniValue toutresult(UniValue::VOBJ);
-                    toutresult.pushKV("index", index);
-                    toutresult.pushKV("value", ValueFromAmount(eout.nValue));
-                    toutresult.pushKV("block_height", eout.block_height);
-                    index = index + 1;
-                    deposits.push_back(toutresult);
+                UniValue commitments(UniValue::VARR);
+                std::vector<AnduroPreCommitment> cList = listPendingCommitment(-1);
+                for (const AnduroPreCommitment& cItem : cList) {
+                    UniValue tresult(UniValue::VOBJ);
+                    tresult.pushKV("block_height", cItem.block_height);
+                    commitments.push_back(tresult);
                 }
-                result.pushKV("deposits", deposits);
+                result.pushKV("commitments", commitments);
                 return result;
         }
     };
@@ -184,6 +175,7 @@ static RPCHelpMan listAllAssets() {
                         {
                             {RPCResult::Type::NUM, "id", "AssetID"},
                             {RPCResult::Type::NUM, "assettype", "Asset Type"},
+                            {RPCResult::Type::NUM, "precision", "Precision Number"},
                             {RPCResult::Type::STR, "ticker", "Asset Ticker"},
                             {RPCResult::Type::NUM, "supply", "Asset supply"},
                             {RPCResult::Type::STR, "headline", "Asset title"},
@@ -202,17 +194,16 @@ static RPCHelpMan listAllAssets() {
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
         {
             NodeContext& node = EnsureAnyNodeContext(request.context);
-            const CTxMemPool& mempool = EnsureMemPool(node);
             ChainstateManager& chainman = EnsureChainman(node);
-
-                UniValue result(UniValue::VOBJ);
-                UniValue assets(UniValue::VARR);
-                std::vector<CoordinateAsset> assetList = chainman.ActiveChainstate().passettree->GetAssets();
+            UniValue result(UniValue::VOBJ);
+            UniValue assets(UniValue::VARR);
+            std::vector<CoordinateAsset> assetList = chainman.ActiveChainstate().passettree->GetAssets();
             ;
                 for (const CoordinateAsset& asset_item : assetList) {
                     UniValue obj(UniValue::VOBJ);
                     obj.pushKV("id", (uint64_t)asset_item.nID);
                     obj.pushKV("assettype", asset_item.assetType);
+                    obj.pushKV("precision", asset_item.precision);
                     obj.pushKV("ticker", asset_item.strTicker);
                     obj.pushKV("supply", asset_item.nSupply);
                     obj.pushKV("headline", asset_item.strHeadline);
@@ -256,9 +247,6 @@ static RPCHelpMan listMempoolAssets() {
         },
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
         {
-            NodeContext& node = EnsureAnyNodeContext(request.context);
-            const CTxMemPool& mempool = EnsureMemPool(node);
-            ChainstateManager& chainman = EnsureChainman(node);
 
                 UniValue result(UniValue::VOBJ);
                 UniValue assets(UniValue::VARR);
@@ -279,30 +267,12 @@ static RPCHelpMan listMempoolAssets() {
 
 }
 
-
-
-static std::vector<RPCArg> CreateTxDoc()
-{
-    return {
-        {"inputs", RPCArg::Type::ARR, RPCArg::Optional::NO, "The inputs",
-            {
-                {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
-                    {
-                        {"address", RPCArg::Type::STR, RPCArg::Optional::NO, "The bitcoin address"},
-                        {"amount", RPCArg::Type::NUM, RPCArg::Optional::NO, "The bitcoin amount"}
-                    },
-                },
-            },
-        }
-    };
-}
-
 void RegisterCoordinateRPCCommands(CRPCTable& t)
 {
     static const CRPCCommand commands[]{
         {"coordinate", &createAuxBlock},
         {"coordinate", &submitAuxBlock},
-        {"coordinate", &getPendingDeposit},
+        {"coordinate", &getPendingCommitments},
         {"coordinate", &anduroDepositAddress},
         {"coordinate", &anduroWithdrawAddress},
         {"coordinate", &listAllAssets},

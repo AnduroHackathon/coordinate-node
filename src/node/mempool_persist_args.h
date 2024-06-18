@@ -5,7 +5,7 @@
 #ifndef BITCOIN_NODE_MEMPOOL_PERSIST_ARGS_H
 #define BITCOIN_NODE_MEMPOOL_PERSIST_ARGS_H
 
-#include <fs.h>
+#include <util/fs.h>
 
 class ArgsManager;
 
@@ -19,6 +19,7 @@ static constexpr bool DEFAULT_PERSIST_MEMPOOL{true};
 
 bool ShouldPersistMempool(const ArgsManager& argsman);
 fs::path MempoolPath(const ArgsManager& argsman);
+fs::path PreConfMempoolPath(const ArgsManager& argsman);
 
 } // namespace node
 

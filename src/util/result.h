@@ -2,8 +2,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or https://www.opensource.org/licenses/mit-license.php.
 
-#ifndef BITCOIN_UTIL_RESULT_H
-#define BITCOIN_UTIL_RESULT_H
+#ifndef COORDINATE_UTIL_RESULT_H
+#define COORDINATE_UTIL_RESULT_H
 
 #include <attributes.h>
 #include <util/translation.h>
@@ -31,16 +31,19 @@ struct Error {
 //! `std::optional<T>` can be updated to return `util::Result<T>` and return
 //! error strings usually just replacing `return std::nullopt;` with `return
 //! util::Error{error_string};`.
-template <class T>
+template <class M>
 class Result
 {
 private:
+    using T = std::conditional_t<std::is_same_v<M, void>, std::monostate, M>;
+
     std::variant<bilingual_str, T> m_variant;
 
     template <typename FT>
     friend bilingual_str ErrorString(const Result<FT>& result);
 
 public:
+    Result() : m_variant{std::in_place_index_t<1>{}, std::monostate{}} {}  // constructor for void
     Result(T obj) : m_variant{std::in_place_index_t<1>{}, std::move(obj)} {}
     Result(Error error) : m_variant{std::in_place_index_t<0>{}, std::move(error.message)} {}
 
@@ -81,4 +84,4 @@ bilingual_str ErrorString(const Result<T>& result)
 }
 } // namespace util
 
-#endif // BITCOIN_UTIL_RESULT_H
+#endif // COORDINATE_UTIL_RESULT_H

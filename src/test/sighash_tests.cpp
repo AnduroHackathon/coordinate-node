@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <common/system.h>
 #include <consensus/tx_check.h>
 #include <consensus/validation.h>
 #include <hash.h>
@@ -10,9 +11,10 @@
 #include <serialize.h>
 #include <streams.h>
 #include <test/data/sighash.json.h>
+#include <test/util/json.h>
+#include <test/util/random.h>
 #include <test/util/setup_common.h>
 #include <util/strencodings.h>
-#include <util/system.h>
 #include <version.h>
 
 #include <iostream>
@@ -20,8 +22,6 @@
 #include <boost/test/unit_test.hpp>
 
 #include <univalue.h>
-
-UniValue read_json(const std::string& jsondata);
 
 // Old script.cpp SignatureHash function
 uint256 static SignatureHashOld(CScript scriptCode, const CTransaction& txTo, unsigned int nIn, int nHashType)
@@ -78,7 +78,7 @@ uint256 static SignatureHashOld(CScript scriptCode, const CTransaction& txTo, un
     }
 
     // Serialize and hash
-    CHashWriter ss(SER_GETHASH, SERIALIZE_TRANSACTION_NO_WITNESS);
+    CHashWriter ss{SERIALIZE_TRANSACTION_NO_WITNESS};
     ss << txTmp << nHashType;
     return ss.GetHash();
 }
@@ -100,7 +100,7 @@ void static RandomTransaction(CMutableTransaction& tx, bool fSingle)
     int ins = (InsecureRandBits(2)) + 1;
     int outs = fSingle ? ins : (InsecureRandBits(2)) + 1;
     for (int in = 0; in < ins; in++) {
-        tx.vin.push_back(CTxIn());
+        tx.vin.emplace_back();
         CTxIn &txin = tx.vin.back();
         txin.prevout.hash = InsecureRand256();
         txin.prevout.n = InsecureRandBits(2);
@@ -108,9 +108,9 @@ void static RandomTransaction(CMutableTransaction& tx, bool fSingle)
         txin.nSequence = (InsecureRandBool()) ? InsecureRand32() : std::numeric_limits<uint32_t>::max();
     }
     for (int out = 0; out < outs; out++) {
-        tx.vout.push_back(CTxOut());
+        tx.vout.emplace_back();
         CTxOut &txout = tx.vout.back();
-        txout.nValue = InsecureRandRange(100000000);
+        txout.nValue = InsecureRandMoneyAmount();
         RandomScript(txout.scriptPubKey);
     }
 }
@@ -162,7 +162,7 @@ BOOST_AUTO_TEST_CASE(sighash_test)
 // Goal: check that SignatureHash generates correct hash
 BOOST_AUTO_TEST_CASE(sighash_from_data)
 {
-    UniValue tests = read_json(std::string(json_tests::sighash, json_tests::sighash + sizeof(json_tests::sighash)));
+    UniValue tests = read_json(json_tests::sighash);
 
     for (unsigned int idx = 0; idx < tests.size(); idx++) {
         const UniValue& test = tests[idx];

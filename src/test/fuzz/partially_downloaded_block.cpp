@@ -40,7 +40,7 @@ PartiallyDownloadedBlock::CheckBlockFn FuzzedCheckBlock(std::optional<BlockValid
     };
 }
 
-FUZZ_TARGET_INIT(partially_downloaded_block, initialize_pdb)
+FUZZ_TARGET(partially_downloaded_block, .init = initialize_pdb)
 {
     FuzzedDataProvider fuzzed_data_provider{buffer.data(), buffer.size()};
 
@@ -53,7 +53,7 @@ FUZZ_TARGET_INIT(partially_downloaded_block, initialize_pdb)
     CBlockHeaderAndShortTxIDs cmpctblock{*block};
 
     CTxMemPool pool{MemPoolOptionsForTest(g_setup->m_node)};
-    PartiallyDownloadedBlock pdb{&pool};
+    PartiallyDownloadedBlock pdb{&pool, nullptr};
 
     // Set of available transactions (mempool or extra_txn)
     std::set<uint16_t> available;

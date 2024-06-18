@@ -7,6 +7,7 @@
 #include <consensus/merkle.h>
 #include <pow.h>
 #include <streams.h>
+#include <test/util/random.h>
 #include <test/util/txmempool.h>
 
 #include <test/util/setup_common.h>
@@ -17,11 +18,11 @@ std::vector<std::pair<uint256, CTransactionRef>> extra_txn;
 
 BOOST_FIXTURE_TEST_SUITE(blockencodings_tests, RegTestingSetup)
 
-
 static void SetBlockVersion(CPureBlockHeader& header, int32_t baseVersion) {
   const int32_t nChainId = Params().GetConsensus().nAuxpowChainId;
   header.SetBaseVersion(baseVersion, nChainId);
 }
+
 
 static CBlock BuildBlockTestCase() {
     CBlock block;
@@ -50,8 +51,9 @@ static CBlock BuildBlockTestCase() {
 
     bool mutated;
     block.hashMerkleRoot = BlockMerkleRoot(block, &mutated);
+    auto& miningHeader = CAuxPow::initAuxPow(block);
     assert(!mutated);
-    while (!CheckProofOfWork(block.GetHash(), block.nBits, Params().GetConsensus())) ++block.nNonce;
+    while (!CheckProofOfWork(miningHeader.GetHash(), block.nBits, Params().GetConsensus())) ++miningHeader.nNonce;
     return block;
 }
 
@@ -79,7 +81,7 @@ BOOST_AUTO_TEST_CASE(SimpleRoundTripTest)
         CBlockHeaderAndShortTxIDs shortIDs2;
         stream >> shortIDs2;
 
-        PartiallyDownloadedBlock partialBlock(&pool);
+        PartiallyDownloadedBlock partialBlock(&pool, nullptr);
         BOOST_CHECK(partialBlock.InitData(shortIDs2, extra_txn) == READ_STATUS_OK);
         BOOST_CHECK( partialBlock.IsTxAvailable(0));
         BOOST_CHECK(!partialBlock.IsTxAvailable(1));
@@ -169,7 +171,7 @@ BOOST_AUTO_TEST_CASE(NonCoinbasePreforwardRTTest)
         CBlockHeaderAndShortTxIDs shortIDs2;
         stream >> shortIDs2;
 
-        PartiallyDownloadedBlock partialBlock(&pool);
+        PartiallyDownloadedBlock partialBlock(&pool, nullptr);
         BOOST_CHECK(partialBlock.InitData(shortIDs2, extra_txn) == READ_STATUS_OK);
         BOOST_CHECK(!partialBlock.IsTxAvailable(0));
         BOOST_CHECK( partialBlock.IsTxAvailable(1));
@@ -239,7 +241,7 @@ BOOST_AUTO_TEST_CASE(SufficientPreforwardRTTest)
         CBlockHeaderAndShortTxIDs shortIDs2;
         stream >> shortIDs2;
 
-        PartiallyDownloadedBlock partialBlock(&pool);
+        PartiallyDownloadedBlock partialBlock(&pool, nullptr);
         BOOST_CHECK(partialBlock.InitData(shortIDs2, extra_txn) == READ_STATUS_OK);
         BOOST_CHECK( partialBlock.IsTxAvailable(0));
         BOOST_CHECK( partialBlock.IsTxAvailable(1));
@@ -281,8 +283,9 @@ BOOST_AUTO_TEST_CASE(EmptyBlockRoundTripTest)
 
     bool mutated;
     block.hashMerkleRoot = BlockMerkleRoot(block, &mutated);
+    auto& miningHeader = CAuxPow::initAuxPow(block);
     assert(!mutated);
-    while (!CheckProofOfWork(block.GetHash(), block.nBits, Params().GetConsensus())) ++block.nNonce;
+    while (!CheckProofOfWork(miningHeader.GetHash(), block.nBits, Params().GetConsensus())) ++miningHeader.nNonce;
 
     // Test simple header round-trip with only coinbase
     {
@@ -294,7 +297,7 @@ BOOST_AUTO_TEST_CASE(EmptyBlockRoundTripTest)
         CBlockHeaderAndShortTxIDs shortIDs2;
         stream >> shortIDs2;
 
-        PartiallyDownloadedBlock partialBlock(&pool);
+        PartiallyDownloadedBlock partialBlock(&pool, nullptr);
         BOOST_CHECK(partialBlock.InitData(shortIDs2, extra_txn) == READ_STATUS_OK);
         BOOST_CHECK(partialBlock.IsTxAvailable(0));
 

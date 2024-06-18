@@ -2,8 +2,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef BITCOIN_UTIL_STRING_H
-#define BITCOIN_UTIL_STRING_H
+#ifndef COORDINATE_UTIL_STRING_H
+#define COORDINATE_UTIL_STRING_H
 
 #include <util/spanparsing.h>
 
@@ -12,8 +12,8 @@
 #include <cstring>
 #include <locale>
 #include <sstream>
-#include <string>
-#include <string_view>
+#include <string>      // IWYU pragma: export
+#include <string_view> // IWYU pragma: export
 #include <vector>
 
 void ReplaceAll(std::string& in_out, const std::string& search, const std::string& substitute);
@@ -125,4 +125,4 @@ template <typename T1, size_t PREFIX_LEN>
            std::equal(std::begin(prefix), std::end(prefix), std::begin(obj));
 }
 
-#endif // BITCOIN_UTIL_STRING_H
+#endif // COORDINATE_UTIL_STRING_H

@@ -39,9 +39,9 @@ FUZZ_SUITE_LD_COMMON = \
  $(LIBTEST_UTIL) \
  $(LIBTEST_FUZZ) \
  $(LIBBITCOIN_NODE) \
- $(LIBBITCOIN_WALLET) \
+ $(LIBCOORDINATE_WALLET) \
  $(LIBBITCOIN_COMMON) \
- $(LIBBITCOIN_UTIL) \
+ $(LIBCOORDINATE_UTIL) \
  $(LIBBITCOIN_CONSENSUS) \
  $(LIBBITCOIN_CRYPTO) \
  $(LIBCOORDINATE_CLI) \
@@ -99,13 +99,12 @@ BITCOIN_TESTS =\
   test/httpserver_tests.cpp \
   test/i2p_tests.cpp \
   test/interfaces_tests.cpp \
-  test/key_io_tests.cpp \
   test/key_tests.cpp \
+  test/key_io_tests.cpp \
   test/logging_tests.cpp \
   test/mempool_tests.cpp \
-  test/merkle_tests.cpp \
   test/merkleblock_tests.cpp \
-  test/miner_tests.cpp \
+  test/miniminer_tests.cpp \
   test/miniscript_tests.cpp \
   test/minisketch_tests.cpp \
   test/multisig_tests.cpp \
@@ -116,6 +115,7 @@ BITCOIN_TESTS =\
   test/pmt_tests.cpp \
   test/policy_fee_tests.cpp \
   test/policyestimator_tests.cpp \
+  test/pool_tests.cpp \
   test/pow_tests.cpp \
   test/prevector_tests.cpp \
   test/raii_event_tests.cpp \
@@ -147,6 +147,7 @@ BITCOIN_TESTS =\
   test/timedata_tests.cpp \
   test/torcontrol_tests.cpp \
   test/transaction_tests.cpp \
+  test/translation_tests.cpp \
   test/txindex_tests.cpp \
   test/txpackage_tests.cpp \
   test/txreconciliation_tests.cpp \
@@ -158,27 +159,28 @@ BITCOIN_TESTS =\
   test/util_threadnames_tests.cpp \
   test/validation_block_tests.cpp \
   test/validation_chainstate_tests.cpp \
-  test/validation_chainstatemanager_tests.cpp \
   test/validation_flush_tests.cpp \
   test/validation_tests.cpp \
   test/validationinterface_tests.cpp \
-  test/versionbits_tests.cpp
+  test/versionbits_tests.cpp \
+  test/xoroshiro128plusplus_tests.cpp
 
 if ENABLE_WALLET
 BITCOIN_TESTS += \
   wallet/test/feebumper_tests.cpp \
   wallet/test/psbt_wallet_tests.cpp \
   wallet/test/spend_tests.cpp \
-  wallet/test/wallet_tests.cpp \
   wallet/test/walletdb_tests.cpp \
   wallet/test/wallet_crypto_tests.cpp \
   wallet/test/wallet_transaction_tests.cpp \
+  wallet/test/wallet_tests.cpp \
   wallet/test/coinselector_tests.cpp \
   wallet/test/init_tests.cpp \
   wallet/test/ismine_tests.cpp \
   wallet/test/rpc_util_tests.cpp \
   wallet/test/scriptpubkeyman_tests.cpp \
-  wallet/test/walletload_tests.cpp
+  wallet/test/walletload_tests.cpp \
+  wallet/test/group_outputs_tests.cpp
 
 FUZZ_SUITE_LD_COMMON +=\
  $(SQLITE_LIBS) \
@@ -189,7 +191,9 @@ BITCOIN_TESTS += wallet/test/db_tests.cpp
 endif
 
 FUZZ_WALLET_SRC = \
+ wallet/test/fuzz/coincontrol.cpp \
  wallet/test/fuzz/coinselection.cpp \
+ wallet/test/fuzz/fees.cpp \
  wallet/test/fuzz/parse_iso8601.cpp
 
 if USE_SQLITE
@@ -208,11 +212,11 @@ test_test_bitcoin_SOURCES = $(BITCOIN_TEST_SUITE) $(BITCOIN_TESTS) $(JSON_TEST_F
 test_test_bitcoin_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(TESTDEFS) $(BOOST_CPPFLAGS) $(EVENT_CFLAGS)
 test_test_bitcoin_LDADD = $(LIBTEST_UTIL)
 if ENABLE_WALLET
-test_test_bitcoin_LDADD += $(LIBBITCOIN_WALLET)
+test_test_bitcoin_LDADD += $(LIBCOORDINATE_WALLET)
 test_test_bitcoin_CPPFLAGS += $(BDB_CPPFLAGS)
 endif
 
-test_test_bitcoin_LDADD += $(LIBBITCOIN_NODE) $(LIBCOORDINATE_CLI) $(LIBBITCOIN_COMMON) $(LIBBITCOIN_UTIL) $(LIBBITCOIN_CONSENSUS) $(LIBBITCOIN_CRYPTO) $(LIBUNIVALUE) \
+test_test_bitcoin_LDADD += $(LIBBITCOIN_NODE) $(LIBCOORDINATE_CLI) $(LIBBITCOIN_COMMON) $(LIBCOORDINATE_UTIL) $(LIBBITCOIN_CONSENSUS) $(LIBBITCOIN_CRYPTO) $(LIBUNIVALUE) \
   $(LIBLEVELDB) $(LIBMEMENV) $(LIBSECP256K1) $(EVENT_LIBS) $(EVENT_PTHREADS_LIBS) $(MINISKETCH_LIBS)
 test_test_bitcoin_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 
@@ -239,6 +243,7 @@ test_fuzz_fuzz_SOURCES = \
  test/fuzz/banman.cpp \
  test/fuzz/base_encode_decode.cpp \
  test/fuzz/bech32.cpp \
+ test/fuzz/bip324.cpp \
  test/fuzz/bitdeque.cpp \
  test/fuzz/block.cpp \
  test/fuzz/block_header.cpp \
@@ -248,12 +253,12 @@ test_fuzz_fuzz_SOURCES = \
  test/fuzz/chain.cpp \
  test/fuzz/checkqueue.cpp \
  test/fuzz/coins_view.cpp \
+ test/fuzz/coinscache_sim.cpp \
  test/fuzz/connman.cpp \
  test/fuzz/crypto.cpp \
  test/fuzz/crypto_aes256.cpp \
  test/fuzz/crypto_aes256cbc.cpp \
  test/fuzz/crypto_chacha20.cpp \
- test/fuzz/crypto_chacha20_poly1305_aead.cpp \
  test/fuzz/crypto_common.cpp \
  test/fuzz/crypto_diff_fuzz_chacha20.cpp \
  test/fuzz/crypto_hkdf_hmac_sha256_l32.cpp \
@@ -268,9 +273,9 @@ test_fuzz_fuzz_SOURCES = \
  test/fuzz/flatfile.cpp \
  test/fuzz/float.cpp \
  test/fuzz/golomb_rice.cpp \
+ test/fuzz/headerssync.cpp \
  test/fuzz/hex.cpp \
  test/fuzz/http_request.cpp \
- test/fuzz/i2p.cpp \
  test/fuzz/integer.cpp \
  test/fuzz/key.cpp \
  test/fuzz/key_io.cpp \
@@ -281,6 +286,7 @@ test_fuzz_fuzz_SOURCES = \
  test/fuzz/message.cpp \
  test/fuzz/miniscript.cpp \
  test/fuzz/minisketch.cpp \
+ test/fuzz/mini_miner.cpp \
  test/fuzz/muhash.cpp \
  test/fuzz/multiplication_overflow.cpp \
  test/fuzz/net.cpp \
@@ -289,6 +295,7 @@ test_fuzz_fuzz_SOURCES = \
  test/fuzz/netbase_dns_lookup.cpp \
  test/fuzz/node_eviction.cpp \
  test/fuzz/p2p_transport_serialization.cpp \
+ test/fuzz/package_eval.cpp \
  test/fuzz/parse_hd_keypath.cpp \
  test/fuzz/parse_numbers.cpp \
  test/fuzz/parse_script.cpp \
@@ -296,6 +303,7 @@ test_fuzz_fuzz_SOURCES = \
  test/fuzz/partially_downloaded_block.cpp \
  test/fuzz/policy_estimator.cpp \
  test/fuzz/policy_estimator_io.cpp \
+ test/fuzz/poolresource.cpp \
  test/fuzz/pow.cpp \
  test/fuzz/prevector.cpp \
  test/fuzz/primitives_transaction.cpp \
@@ -337,6 +345,7 @@ test_fuzz_fuzz_SOURCES = \
  test/fuzz/txorphan.cpp \
  test/fuzz/txrequest.cpp \
  test/fuzz/utxo_snapshot.cpp \
+ test/fuzz/utxo_total_supply.cpp \
  test/fuzz/validation_load_mempool.cpp \
  test/fuzz/versionbits.cpp
 endif # ENABLE_FUZZ_BINARY
@@ -365,20 +374,15 @@ bitcoin_test_check: $(TEST_BINARY) FORCE
 bitcoin_test_clean : FORCE
 	rm -f $(CLEAN_BITCOIN_TEST) $(test_test_bitcoin_OBJECTS) $(TEST_BINARY)
 
-check-local: $(BITCOIN_TESTS:.cpp=.cpp.test)
-if BUILD_BITCOIN_TX
+check-unit: $(BITCOIN_TESTS:.cpp=.cpp.test)
+
+check-local: check-unit
+if BUILD_COORDINATE_TX
 	@echo "Running test/util/test_runner.py..."
 	$(PYTHON) $(top_builddir)/test/util/test_runner.py
 endif
 	@echo "Running test/util/rpcauth-test.py..."
 	$(PYTHON) $(top_builddir)/test/util/rpcauth-test.py
-if TARGET_WINDOWS
-else
-if ENABLE_BENCH
-	@echo "Running bench/bench_bitcoin (one iteration sanity check, only high priority)..."
-	$(BENCH_BINARY) -sanity-check -priority-level=high
-endif
-endif
 	$(AM_V_at)$(MAKE) $(AM_MAKEFLAGS) -C secp256k1 check
 
 if ENABLE_TESTS
@@ -414,10 +418,10 @@ endif
 
 %.json.h: %.json
 	@$(MKDIR_P) $(@D)
-	@{ \
+	$(AM_V_GEN) { \
+	 echo "#include <string>" && \
 	 echo "namespace json_tests{" && \
-	 echo "static unsigned const char $(*F)[] = {" && \
+	 echo "static const std::string $(*F){" && \
 	 $(HEXDUMP) -v -e '8/1 "0x%02x, "' -e '"\n"' $< | $(SED) -e 's/0x  ,//g' && \
 	 echo "};};"; \
 	} > "$@.new" && mv -f "$@.new" "$@"
-	@echo "Generated $@"

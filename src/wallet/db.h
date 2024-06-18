@@ -3,13 +3,13 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef BITCOIN_WALLET_DB_H
-#define BITCOIN_WALLET_DB_H
+#ifndef COORDINATE_WALLET_DB_H
+#define COORDINATE_WALLET_DB_H
 
 #include <clientversion.h>
-#include <fs.h>
 #include <streams.h>
 #include <support/allocators/secure.h>
+#include <util/fs.h>
 
 #include <atomic>
 #include <memory>
@@ -110,8 +110,10 @@ public:
 
         return HasKey(std::move(ssKey));
     }
+    virtual bool ErasePrefix(Span<const std::byte> prefix) = 0;
 
     virtual std::unique_ptr<DatabaseCursor> GetNewCursor() = 0;
+    virtual std::unique_ptr<DatabaseCursor> GetNewPrefixCursor(Span<const std::byte> prefix) = 0;
     virtual bool TxnBegin() = 0;
     virtual bool TxnCommit() = 0;
     virtual bool TxnAbort() = 0;
@@ -123,7 +125,7 @@ class WalletDatabase
 {
 public:
     /** Create dummy DB handle */
-    WalletDatabase() : nUpdateCounter(0), nLastSeen(0), nLastFlushed(0), nLastWalletUpdate(0) {}
+    WalletDatabase() : nUpdateCounter(0) {}
     virtual ~WalletDatabase() {};
 
     /** Open the database if it is not already opened. */
@@ -165,56 +167,12 @@ public:
     virtual std::string Format() = 0;
 
     std::atomic<unsigned int> nUpdateCounter;
-    unsigned int nLastSeen;
-    unsigned int nLastFlushed;
-    int64_t nLastWalletUpdate;
+    unsigned int nLastSeen{0};
+    unsigned int nLastFlushed{0};
+    int64_t nLastWalletUpdate{0};
 
     /** Make a DatabaseBatch connected to this database */
     virtual std::unique_ptr<DatabaseBatch> MakeBatch(bool flush_on_close = true) = 0;
-};
-
-class DummyCursor : public DatabaseCursor
-{
-    Status Next(DataStream& key, DataStream& value) override { return Status::FAIL; }
-};
-
-/** RAII class that provides access to a DummyDatabase. Never fails. */
-class DummyBatch : public DatabaseBatch
-{
-private:
-    bool ReadKey(DataStream&& key, DataStream& value) override { return true; }
-    bool WriteKey(DataStream&& key, DataStream&& value, bool overwrite = true) override { return true; }
-    bool EraseKey(DataStream&& key) override { return true; }
-    bool HasKey(DataStream&& key) override { return true; }
-
-public:
-    void Flush() override {}
-    void Close() override {}
-
-    std::unique_ptr<DatabaseCursor> GetNewCursor() override { return std::make_unique<DummyCursor>(); }
-    bool TxnBegin() override { return true; }
-    bool TxnCommit() override { return true; }
-    bool TxnAbort() override { return true; }
-};
-
-/** A dummy WalletDatabase that does nothing and never fails. Only used by unit tests.
- **/
-class DummyDatabase : public WalletDatabase
-{
-public:
-    void Open() override {};
-    void AddRef() override {}
-    void RemoveRef() override {}
-    bool Rewrite(const char* pszSkip=nullptr) override { return true; }
-    bool Backup(const std::string& strDest) const override { return true; }
-    void Close() override {}
-    void Flush() override {}
-    bool PeriodicFlush() override { return true; }
-    void IncrementUpdateCounter() override { ++nUpdateCounter; }
-    void ReloadDbEnv() override {}
-    std::string Filename() override { return "dummy"; }
-    std::string Format() override { return "dummy"; }
-    std::unique_ptr<DatabaseBatch> MakeBatch(bool flush_on_close = true) override { return std::make_unique<DummyBatch>(); }
 };
 
 enum class DatabaseFormat {
@@ -262,4 +220,4 @@ bool IsBDBFile(const fs::path& path);
 bool IsSQLiteFile(const fs::path& path);
 } // namespace wallet
 
-#endif // BITCOIN_WALLET_DB_H
+#endif // COORDINATE_WALLET_DB_H

@@ -6,6 +6,7 @@ template<typename Stream, typename CoordinateType>
 inline void UnserializeAsset(CoordinateType& assetData, Stream& s) {
     s >> assetData.nID;
     s >> assetData.assetType;
+    s >> assetData.precision;
     s >> assetData.strTicker;
     s >> assetData.strHeadline;
     s >> assetData.payload;
@@ -19,6 +20,7 @@ template<typename Stream, typename CoordinateType>
 inline void SerializeAsset(const CoordinateType& assetData, Stream& s) {
     s << assetData.nID;
     s << assetData.assetType;
+    s << assetData.precision;
     s << assetData.strTicker;
     s << assetData.strHeadline;
     s << assetData.payload;
@@ -32,6 +34,7 @@ struct CoordinateAsset {
 public:
     uint32_t nID;   /*!< Asset unique number */
     uint32_t assetType; /*!< Asset type - (e.g. 0 - tokens, 1 - nft, 1 - blob nft) */
+    uint32_t precision; /*!< Precision Number - (0..8) */
     std::string strTicker; /*!< Asset symbol. */
     std::string strHeadline; /*!< Asset name. */
     uint256 payload; /*!< Asset sha256 id combination for all asset information with asset data. */
@@ -63,6 +66,7 @@ public:
     {
         nID = 0;
         assetType = 0;
+        precision = 0;
         strTicker="";
         strHeadline="";
         payload.SetNull();

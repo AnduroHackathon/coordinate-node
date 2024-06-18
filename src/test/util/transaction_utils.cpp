@@ -52,6 +52,7 @@ std::vector<CMutableTransaction> SetupDummyInputs(FillableSigningProvider& keyst
         keystoreRet.AddKey(key[i]);
     }
     CAmount amountAssetIn = CAmount(0);
+    CAmount preconfRefund = CAmount(0);
     int nControlN = -1;
     // Create some dummy input transactions
     dummyTransactions[0].vout.resize(2);
@@ -59,15 +60,14 @@ std::vector<CMutableTransaction> SetupDummyInputs(FillableSigningProvider& keyst
     dummyTransactions[0].vout[0].scriptPubKey << ToByteVector(key[0].GetPubKey()) << OP_CHECKSIG;
     dummyTransactions[0].vout[1].nValue = nValues[1];
     dummyTransactions[0].vout[1].scriptPubKey << ToByteVector(key[1].GetPubKey()) << OP_CHECKSIG;
-    AddCoins(coinsRet, CTransaction(dummyTransactions[0]), 0, 0, amountAssetIn, nControlN);
+    AddCoins(coinsRet, CTransaction(dummyTransactions[0]), 0, preconfRefund, 0, amountAssetIn, nControlN);
 
     dummyTransactions[1].vout.resize(2);
     dummyTransactions[1].vout[0].nValue = nValues[2];
     dummyTransactions[1].vout[0].scriptPubKey = GetScriptForDestination(PKHash(key[2].GetPubKey()));
     dummyTransactions[1].vout[1].nValue = nValues[3];
     dummyTransactions[1].vout[1].scriptPubKey = GetScriptForDestination(PKHash(key[3].GetPubKey()));
-
-    AddCoins(coinsRet, CTransaction(dummyTransactions[1]), 0, 0, amountAssetIn, nControlN);
+    AddCoins(coinsRet, CTransaction(dummyTransactions[1]), 0, preconfRefund, 0, amountAssetIn, nControlN);
 
     return dummyTransactions;
 }

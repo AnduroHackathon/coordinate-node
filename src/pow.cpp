@@ -9,8 +9,6 @@
 #include <chain.h>
 #include <primitives/block.h>
 #include <uint256.h>
-#include <logging.h>
-#include <logging/timer.h>
 
 unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHeader *pblock, const Consensus::Params& params)
 {
@@ -20,11 +18,8 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
     // Only change once per difficulty adjustment interval
     if ((pindexLast->nHeight+1) % params.DifficultyAdjustmentInterval() != 0)
     {
-        if (params.AllowMinDifficultyBlocks(pblock->GetBlockTime()))
+        if (params.fPowAllowMinDifficultyBlocks)
         {
-
-            if (pblock->GetBlockTime() < pindexLast->GetBlockTime())
-                return nProofOfWorkLimit;
             // Special difficulty rule for testnet:
             // If the new block's timestamp is more than 2* 10 minutes
             // then allow mining of a min-difficulty block.
@@ -49,8 +44,9 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
         && (pindexLast->nHeight + 1 > params.DifficultyAdjustmentInterval()))
         nBlocksBack = params.DifficultyAdjustmentInterval();
 
+
     // Go back by what we want to be 14 days worth of blocks
-    int nHeightFirst = pindexLast->nHeight - (params.DifficultyAdjustmentInterval()-1);
+    int nHeightFirst = pindexLast->nHeight - nBlocksBack;
     assert(nHeightFirst >= 0);
     const CBlockIndex* pindexFirst = pindexLast->GetAncestor(nHeightFirst);
     assert(pindexFirst);
@@ -147,11 +143,8 @@ bool CheckProofOfWork(uint256 hash, unsigned int nBits, const Consensus::Params&
         return false;
 
     // Check proof of work matches claimed amount
-    if (UintToArith256(hash) > bnTarget){
-        LogPrintf("hash %i pow\n", hash.ToString());
-        LogPrintf("bnTarget %i pow\n", bnTarget.ToString());
+    if (UintToArith256(hash) > bnTarget)
         return false;
-    }
 
     return true;
 }

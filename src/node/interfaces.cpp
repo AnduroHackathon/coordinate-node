@@ -7,6 +7,7 @@
 #include <blockfilter.h>
 #include <chain.h>
 #include <chainparams.h>
+#include <common/args.h>
 #include <deploymentstatus.h>
 #include <external_signer.h>
 #include <index/blockfilterindex.h>
@@ -17,6 +18,7 @@
 #include <interfaces/wallet.h>
 #include <kernel/chain.h>
 #include <kernel/mempool_entry.h>
+#include <logging.h>
 #include <mapport.h>
 #include <net.h>
 #include <net_processing.h>
@@ -26,6 +28,7 @@
 #include <node/coin.h>
 #include <node/context.h>
 #include <node/interface_ui.h>
+#include <node/mini_miner.h>
 #include <node/transaction.h>
 #include <policy/feerate.h>
 #include <policy/fees.h>
@@ -43,7 +46,6 @@
 #include <uint256.h>
 #include <univalue.h>
 #include <util/check.h>
-#include <util/system.h>
 #include <util/translation.h>
 #include <validation.h>
 #include <validationinterface.h>
@@ -86,14 +88,15 @@ class NodeImpl : public Node
 {
 public:
     explicit NodeImpl(NodeContext& context) { setContext(&context); }
-    void initLogging() override { InitLogging(*Assert(m_context->args)); }
-    void initParameterInteraction() override { InitParameterInteraction(*Assert(m_context->args)); }
+    void initLogging() override { InitLogging(args()); }
+    void initParameterInteraction() override { InitParameterInteraction(args()); }
     bilingual_str getWarnings() override { return GetWarnings(true); }
+    int getExitStatus() override { return Assert(m_context)->exit_status.load(); }
     uint32_t getLogCategories() override { return LogInstance().GetCategoryMask(); }
     bool baseInitialize() override
     {
-        if (!AppInitBasicSetup(gArgs)) return false;
-        if (!AppInitParameterInteraction(gArgs, /*use_syscall_sandbox=*/false)) return false;
+        if (!AppInitBasicSetup(args(), Assert(context())->exit_status)) return false;
+        if (!AppInitParameterInteraction(args())) return false;
 
         m_context->kernel = std::make_unique<kernel::Context>();
         if (!AppInitSanityChecks(*m_context->kernel)) return false;
@@ -105,7 +108,10 @@ public:
     }
     bool appInitMain(interfaces::BlockAndHeaderTipInfo* tip_info) override
     {
-        return AppInitMain(*m_context, tip_info);
+        if (AppInitMain(*m_context, tip_info)) return true;
+        // Error during initialization, set exit status before continue
+        m_context->exit_status.store(EXIT_FAILURE);
+        return false;
     }
     void appShutdown() override
     {
@@ -116,7 +122,7 @@ public:
     {
         StartShutdown();
         // Stop RPC for clean shutdown if any of waitfor* commands is executed.
-        if (gArgs.GetBoolArg("-server", false)) {
+        if (args().GetBoolArg("-server", false)) {
             InterruptRPC();
             StopRPC();
         }
@@ -125,28 +131,28 @@ public:
     bool isSettingIgnored(const std::string& name) override
     {
         bool ignored = false;
-        gArgs.LockSettings([&](util::Settings& settings) {
-            if (auto* options = util::FindKey(settings.command_line_options, name)) {
+        args().LockSettings([&](common::Settings& settings) {
+            if (auto* options = common::FindKey(settings.command_line_options, name)) {
                 ignored = !options->empty();
             }
         });
         return ignored;
     }
-    util::SettingsValue getPersistentSetting(const std::string& name) override { return gArgs.GetPersistentSetting(name); }
-    void updateRwSetting(const std::string& name, const util::SettingsValue& value) override
+    common::SettingsValue getPersistentSetting(const std::string& name) override { return args().GetPersistentSetting(name); }
+    void updateRwSetting(const std::string& name, const common::SettingsValue& value) override
     {
-        gArgs.LockSettings([&](util::Settings& settings) {
+        args().LockSettings([&](common::Settings& settings) {
             if (value.isNull()) {
                 settings.rw_settings.erase(name);
             } else {
                 settings.rw_settings[name] = value;
             }
         });
-        gArgs.WriteSettingsFile();
+        args().WriteSettingsFile();
     }
-    void forceSetting(const std::string& name, const util::SettingsValue& value) override
+    void forceSetting(const std::string& name, const common::SettingsValue& value) override
     {
-        gArgs.LockSettings([&](util::Settings& settings) {
+        args().LockSettings([&](common::Settings& settings) {
             if (value.isNull()) {
                 settings.forced_settings.erase(name);
             } else {
@@ -156,11 +162,11 @@ public:
     }
     void resetSettings() override
     {
-        gArgs.WriteSettingsFile(/*errors=*/nullptr, /*backup=*/true);
-        gArgs.LockSettings([&](util::Settings& settings) {
+        args().WriteSettingsFile(/*errors=*/nullptr, /*backup=*/true);
+        args().LockSettings([&](common::Settings& settings) {
             settings.rw_settings.clear();
         });
-        gArgs.WriteSettingsFile();
+        args().WriteSettingsFile();
     }
     void mapPort(bool use_upnp, bool use_natpmp) override { StartMapPort(use_upnp, use_natpmp); }
     bool getProxy(Network net, Proxy& proxy_info) override { return GetProxy(net, proxy_info); }
@@ -237,10 +243,11 @@ public:
     {
 #ifdef ENABLE_EXTERNAL_SIGNER
         std::vector<ExternalSigner> signers = {};
-        const std::string command = gArgs.GetArg("-signer", "");
+        const std::string command = args().GetArg("-signer", "");
         if (command == "") return {};
-        ExternalSigner::Enumerate(command, signers, Params().NetworkIDString());
+        ExternalSigner::Enumerate(command, signers, Params().GetChainTypeString());
         std::vector<std::unique_ptr<interfaces::ExternalSigner>> result;
+        result.reserve(signers.size());
         for (auto& signer : signers) {
             result.emplace_back(std::make_unique<ExternalSignerImpl>(std::move(signer)));
         }
@@ -292,11 +299,11 @@ public:
     {
         return GuessVerificationProgress(chainman().GetParams().TxData(), WITH_LOCK(::cs_main, return chainman().ActiveChain().Tip()));
     }
-    bool isInitialBlockDownload() override {
-        return chainman().ActiveChainstate().IsInitialBlockDownload();
+    bool isInitialBlockDownload() override
+    {
+        return chainman().IsInitialBlockDownload();
     }
-    bool getReindex() override { return node::fReindex; }
-    bool getImporting() override { return node::fImporting; }
+    bool isLoadingBlocks() override { return chainman().m_blockman.LoadingBlocks(); }
     void setNetworkActive(bool active) override
     {
         if (m_context->connman) {
@@ -389,11 +396,12 @@ public:
     {
         m_context = context;
     }
+    ArgsManager& args() { return *Assert(Assert(m_context)->args); }
     ChainstateManager& chainman() { return *Assert(m_context->chainman); }
     NodeContext* m_context{nullptr};
 };
 
-bool FillBlock(const CBlockIndex* index, const FoundBlock& block, UniqueLock<RecursiveMutex>& lock, const CChain& active)
+bool FillBlock(const CBlockIndex* index, const FoundBlock& block, UniqueLock<RecursiveMutex>& lock, const CChain& active, const BlockManager& blockman)
 {
     if (!index) return false;
     if (block.m_hash) *block.m_hash = index->GetBlockHash();
@@ -403,10 +411,10 @@ bool FillBlock(const CBlockIndex* index, const FoundBlock& block, UniqueLock<Rec
     if (block.m_mtp_time) *block.m_mtp_time = index->GetMedianTimePast();
     if (block.m_in_active_chain) *block.m_in_active_chain = active[index->nHeight] == index;
     if (block.m_locator) { *block.m_locator = GetLocator(index); }
-    if (block.m_next_block) FillBlock(active[index->nHeight] == index ? active[index->nHeight + 1] : nullptr, *block.m_next_block, lock, active);
+    if (block.m_next_block) FillBlock(active[index->nHeight] == index ? active[index->nHeight + 1] : nullptr, *block.m_next_block, lock, active, blockman);
     if (block.m_data) {
         REVERSE_LOCK(lock);
-        if (!ReadBlockFromDisk(*block.m_data, index, Params().GetConsensus())) block.m_data->SetNull();
+        if (!blockman.ReadBlockFromDisk(*block.m_data, *index)) block.m_data->SetNull();
     }
     block.found = true;
     return true;
@@ -426,9 +434,9 @@ public:
     {
         m_notifications->transactionRemovedFromMempool(tx, reason);
     }
-    void BlockConnected(const std::shared_ptr<const CBlock>& block, const CBlockIndex* index) override
+    void BlockConnected(ChainstateRole role, const std::shared_ptr<const CBlock>& block, const CBlockIndex* index) override
     {
-        m_notifications->blockConnected(kernel::MakeBlockInfo(index, block.get()));
+        m_notifications->blockConnected(role, kernel::MakeBlockInfo(index, block.get()));
     }
     void BlockDisconnected(const std::shared_ptr<const CBlock>& block, const CBlockIndex* index) override
     {
@@ -438,7 +446,9 @@ public:
     {
         m_notifications->updatedBlockTip();
     }
-    void ChainStateFlushed(const CBlockLocator& locator) override { m_notifications->chainStateFlushed(locator); }
+    void ChainStateFlushed(ChainstateRole role, const CBlockLocator& locator) override {
+        m_notifications->chainStateFlushed(role, locator);
+    }
     std::shared_ptr<Chain::Notifications> m_notifications;
 };
 
@@ -556,13 +566,13 @@ public:
     bool findBlock(const uint256& hash, const FoundBlock& block) override
     {
         WAIT_LOCK(cs_main, lock);
-        return FillBlock(chainman().m_blockman.LookupBlockIndex(hash), block, lock, chainman().ActiveChain());
+        return FillBlock(chainman().m_blockman.LookupBlockIndex(hash), block, lock, chainman().ActiveChain(), chainman().m_blockman);
     }
     bool findFirstBlockWithTimeAndHeight(int64_t min_time, int min_height, const FoundBlock& block) override
     {
         WAIT_LOCK(cs_main, lock);
         const CChain& active = chainman().ActiveChain();
-        return FillBlock(active.FindEarliestAtLeast(min_time, min_height), block, lock, active);
+        return FillBlock(active.FindEarliestAtLeast(min_time, min_height), block, lock, active, chainman().m_blockman);
     }
     bool findAncestorByHeight(const uint256& block_hash, int ancestor_height, const FoundBlock& ancestor_out) override
     {
@@ -570,10 +580,10 @@ public:
         const CChain& active = chainman().ActiveChain();
         if (const CBlockIndex* block = chainman().m_blockman.LookupBlockIndex(block_hash)) {
             if (const CBlockIndex* ancestor = block->GetAncestor(ancestor_height)) {
-                return FillBlock(ancestor, ancestor_out, lock, active);
+                return FillBlock(ancestor, ancestor_out, lock, active, chainman().m_blockman);
             }
         }
-        return FillBlock(nullptr, ancestor_out, lock, active);
+        return FillBlock(nullptr, ancestor_out, lock, active, chainman().m_blockman);
     }
     bool findAncestorByHash(const uint256& block_hash, const uint256& ancestor_hash, const FoundBlock& ancestor_out) override
     {
@@ -581,7 +591,7 @@ public:
         const CBlockIndex* block = chainman().m_blockman.LookupBlockIndex(block_hash);
         const CBlockIndex* ancestor = chainman().m_blockman.LookupBlockIndex(ancestor_hash);
         if (block && ancestor && block->GetAncestor(ancestor->nHeight) != ancestor) ancestor = nullptr;
-        return FillBlock(ancestor, ancestor_out, lock, chainman().ActiveChain());
+        return FillBlock(ancestor, ancestor_out, lock, chainman().ActiveChain(), chainman().m_blockman);
     }
     bool findCommonAncestor(const uint256& block_hash1, const uint256& block_hash2, const FoundBlock& ancestor_out, const FoundBlock& block1_out, const FoundBlock& block2_out) override
     {
@@ -593,9 +603,9 @@ public:
         // Using & instead of && below to avoid short circuiting and leaving
         // output uninitialized. Cast bool to int to avoid -Wbitwise-instead-of-logical
         // compiler warnings.
-        return int{FillBlock(ancestor, ancestor_out, lock, active)} &
-               int{FillBlock(block1, block1_out, lock, active)} &
-               int{FillBlock(block2, block2_out, lock, active)};
+        return int{FillBlock(ancestor, ancestor_out, lock, active, chainman().m_blockman)} &
+               int{FillBlock(block1, block1_out, lock, active, chainman().m_blockman)} &
+               int{FillBlock(block2, block2_out, lock, active, chainman().m_blockman)};
     }
     void findCoins(std::map<COutPoint, Coin>& coins) override { return FindCoins(m_node, coins); }
     double guessVerificationProgress(const uint256& block_hash) override
@@ -658,6 +668,26 @@ public:
         if (!m_node.mempool) return;
         m_node.mempool->GetTransactionAncestry(txid, ancestors, descendants, ancestorsize, ancestorfees);
     }
+
+    std::map<COutPoint, CAmount> CalculateIndividualBumpFees(const std::vector<COutPoint>& outpoints, const CFeeRate& target_feerate) override
+    {
+        if (!m_node.mempool) {
+            std::map<COutPoint, CAmount> bump_fees;
+            for (const auto& outpoint : outpoints) {
+                bump_fees.emplace(outpoint, 0);
+            }
+            return bump_fees;
+        }
+        return MiniMiner(*m_node.mempool, outpoints).CalculateBumpFees(target_feerate);
+    }
+
+    std::optional<CAmount> CalculateCombinedBumpFee(const std::vector<COutPoint>& outpoints, const CFeeRate& target_feerate) override
+    {
+        if (!m_node.mempool) {
+            return 0;
+        }
+        return MiniMiner(*m_node.mempool, outpoints).CalculateTotalBumpFees(target_feerate);
+    }
     void getPackageLimits(unsigned int& limit_ancestor_count, unsigned int& limit_descendant_count) override
     {
         const CTxMemPool::Limits default_limits{};
@@ -671,7 +701,7 @@ public:
     {
         if (!m_node.mempool) return true;
         LockPoints lp;
-        CTxMemPoolEntry entry(tx, 0, 0, 0, false, 0, lp);
+        CTxMemPoolEntry entry(tx, 0, 0, 0, 0, false, 0, lp);
         const CTxMemPool::Limits& limits{m_node.mempool->m_limits};
         LOCK(m_node.mempool->cs);
         return m_node.mempool->CalculateMemPoolAncestors(entry, limits).has_value();
@@ -714,7 +744,7 @@ public:
     bool isReadyToBroadcast() override { return !chainman().m_blockman.LoadingBlocks() && !isInitialBlockDownload(); }
     bool isInitialBlockDownload() override
     {
-        return chainman().ActiveChainstate().IsInitialBlockDownload();
+        return chainman().IsInitialBlockDownload();
     }
     bool shutdownRequested() override { return ShutdownRequested(); }
     void initMessage(const std::string& message) override { ::uiInterface.InitMessage(message); }
@@ -743,34 +773,34 @@ public:
         RPCRunLater(name, std::move(fn), seconds);
     }
     int rpcSerializationFlags() override { return RPCSerializationFlags(); }
-    util::SettingsValue getSetting(const std::string& name) override
+    common::SettingsValue getSetting(const std::string& name) override
     {
-        return gArgs.GetSetting(name);
+        return args().GetSetting(name);
     }
-    std::vector<util::SettingsValue> getSettingsList(const std::string& name) override
+    std::vector<common::SettingsValue> getSettingsList(const std::string& name) override
     {
-        return gArgs.GetSettingsList(name);
+        return args().GetSettingsList(name);
     }
-    util::SettingsValue getRwSetting(const std::string& name) override
+    common::SettingsValue getRwSetting(const std::string& name) override
     {
-        util::SettingsValue result;
-        gArgs.LockSettings([&](const util::Settings& settings) {
-            if (const util::SettingsValue* value = util::FindKey(settings.rw_settings, name)) {
+        common::SettingsValue result;
+        args().LockSettings([&](const common::Settings& settings) {
+            if (const common::SettingsValue* value = common::FindKey(settings.rw_settings, name)) {
                 result = *value;
             }
         });
         return result;
     }
-    bool updateRwSetting(const std::string& name, const util::SettingsValue& value, bool write) override
+    bool updateRwSetting(const std::string& name, const common::SettingsValue& value, bool write) override
     {
-        gArgs.LockSettings([&](util::Settings& settings) {
+        args().LockSettings([&](common::Settings& settings) {
             if (value.isNull()) {
                 settings.rw_settings.erase(name);
             } else {
                 settings.rw_settings[name] = value;
             }
         });
-        return !write || gArgs.WriteSettingsFile();
+        return !write || args().WriteSettingsFile();
     }
     void requestMempoolTransactions(Notifications& notifications) override
     {
@@ -786,6 +816,7 @@ public:
     }
 
     NodeContext* context() override { return &m_node; }
+    ArgsManager& args() { return *Assert(m_node.args); }
     ChainstateManager& chainman() { return *Assert(m_node.chainman); }
     NodeContext& m_node;
 };

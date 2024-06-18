@@ -2,10 +2,12 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <addresstype.h>
 #include <clientversion.h>
 #include <coins.h>
-#include <script/standard.h>
 #include <streams.h>
+#include <test/util/poolresourcetester.h>
+#include <test/util/random.h>
 #include <test/util/setup_common.h>
 #include <txdb.h>
 #include <uint256.h>
@@ -18,7 +20,7 @@
 #include <boost/test/unit_test.hpp>
 
 int ApplyTxInUndo(Coin&& undo, CCoinsViewCache& view, const COutPoint& out);
-void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txundo, int nHeight, CAmount& amountAssetInOut, int& nControlNOut, uint32_t& nAssetIDOut, uint32_t nNewAssetIDIn);
+void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txundo, int nHeight, CAmount& amountAssetInOut, int& nControlNOut, uint32_t& nAssetIDOut, uint32_t nNewAssetIDIn, CAmount& refund);
 
 namespace
 {
@@ -131,8 +133,8 @@ void SimulationTest(CCoinsView* base, bool fake_best_block)
     std::map<COutPoint, Coin> result;
 
     // The cache stack.
-    std::vector<CCoinsViewCacheTest*> stack; // A stack of CCoinsViewCaches on top.
-    stack.push_back(new CCoinsViewCacheTest(base)); // Start with one cache.
+    std::vector<std::unique_ptr<CCoinsViewCacheTest>> stack; // A stack of CCoinsViewCaches on top.
+    stack.push_back(std::make_unique<CCoinsViewCacheTest>(base)); // Start with one cache.
 
     // Use a limited set of random transaction ids, so we do test overwriting entries.
     std::vector<uint256> txids;
@@ -172,7 +174,7 @@ void SimulationTest(CCoinsView* base, bool fake_best_block)
 
             if (InsecureRandRange(5) == 0 || coin.IsSpent()) {
                 Coin newcoin;
-                newcoin.out.nValue = InsecureRand32();
+                newcoin.out.nValue = InsecureRandMoneyAmount();
                 newcoin.nHeight = 1;
 
                 // Infrequently test adding unspendable coins.
@@ -194,8 +196,9 @@ void SimulationTest(CCoinsView* base, bool fake_best_block)
                 coin.Clear();
                 bool fBitAsset = false;
                 bool fBitAssetControl = false;
+                bool isPreconf = false;
                 uint32_t nAssetID = 0;
-                BOOST_CHECK(stack.back()->SpendCoin(COutPoint(txid, 0),fBitAsset, fBitAssetControl, nAssetID));
+                BOOST_CHECK(stack.back()->SpendCoin(COutPoint(txid, 0), fBitAsset, fBitAssetControl, isPreconf, nAssetID));
             }
         }
 
@@ -221,7 +224,7 @@ void SimulationTest(CCoinsView* base, bool fake_best_block)
                     found_an_entry = true;
                 }
             }
-            for (const CCoinsViewCacheTest *test : stack) {
+            for (const auto& test : stack) {
                 test->SelfTest();
             }
         }
@@ -244,29 +247,22 @@ void SimulationTest(CCoinsView* base, bool fake_best_block)
                 bool should_erase = InsecureRandRange(4) < 3;
                 BOOST_CHECK(should_erase ? stack.back()->Flush() : stack.back()->Sync());
                 flushed_without_erase |= !should_erase;
-                delete stack.back();
                 stack.pop_back();
             }
             if (stack.size() == 0 || (stack.size() < 4 && InsecureRandBool())) {
                 //Add a new cache
                 CCoinsView* tip = base;
                 if (stack.size() > 0) {
-                    tip = stack.back();
+                    tip = stack.back().get();
                 } else {
                     removed_all_caches = true;
                 }
-                stack.push_back(new CCoinsViewCacheTest(tip));
+                stack.push_back(std::make_unique<CCoinsViewCacheTest>(tip));
                 if (stack.size() == 4) {
                     reached_4_caches = true;
                 }
             }
         }
-    }
-
-    // Clean up the stack.
-    while (stack.size() > 0) {
-        delete stack.back();
-        stack.pop_back();
     }
 
     // Verify coverage.
@@ -288,7 +284,7 @@ BOOST_AUTO_TEST_CASE(coins_cache_simulation_test)
     CCoinsViewTest base;
     SimulationTest(&base, false);
 
-    CCoinsViewDB db_base{"test", /*nCacheSize=*/1 << 23, /*fMemory=*/true, /*fWipe=*/false};
+    CCoinsViewDB db_base{{.path = "test", .cache_bytes = 1 << 23, .memory_only = true}, {}};
     SimulationTest(&db_base, true);
 }
 
@@ -324,8 +320,8 @@ BOOST_AUTO_TEST_CASE(updatecoins_simulation_test)
 
     // The cache stack.
     CCoinsViewTest base; // A CCoinsViewTest at the bottom.
-    std::vector<CCoinsViewCacheTest*> stack; // A stack of CCoinsViewCaches on top.
-    stack.push_back(new CCoinsViewCacheTest(&base)); // Start with one cache.
+    std::vector<std::unique_ptr<CCoinsViewCacheTest>> stack; // A stack of CCoinsViewCaches on top.
+    stack.push_back(std::make_unique<CCoinsViewCacheTest>(&base)); // Start with one cache.
 
     // Track the txids we've used in various sets
     std::set<COutPoint> coinbase_coins;
@@ -412,7 +408,7 @@ BOOST_AUTO_TEST_CASE(updatecoins_simulation_test)
             // Update the expected result to know about the new output coins
             assert(tx.vout.size() == 1);
             const COutPoint outpoint(tx.GetHash(), 0);
-            result[outpoint] = Coin{tx.vout[0], height, CTransaction{tx}.IsCoinBase(), false, false, 0};
+            result[outpoint] = Coin{tx.vout[0], height, CTransaction{tx}.IsCoinBase(), false, false, false, 0};
 
             // Call UpdateCoins on the top cache
             CTxUndo undo;
@@ -420,7 +416,8 @@ BOOST_AUTO_TEST_CASE(updatecoins_simulation_test)
             int nControlN = -1;
             uint32_t nAssetID = 0;
             uint32_t nNewAssetID = 0;
-            UpdateCoins(CTransaction{tx}, *(stack.back()), undo, height, amountAssetIn, nControlN, nAssetID, nNewAssetID);
+            CAmount refund = CAmount(0);
+            UpdateCoins(CTransaction{tx}, *(stack.back()), undo, height, amountAssetIn, nControlN, nAssetID, nNewAssetID, refund);
 
             // Update the utxo set for future spends
             utxoset.insert(outpoint);
@@ -448,8 +445,9 @@ BOOST_AUTO_TEST_CASE(updatecoins_simulation_test)
             // remove outputs
             bool fBitAsset = false;
             bool fBitAssetControl = false;
+            bool isPreconf = false;
             uint32_t nAssetID = 0;
-            BOOST_CHECK(stack.back()->SpendCoin(utxod->first, fBitAsset, fBitAssetControl, nAssetID));
+            BOOST_CHECK(stack.back()->SpendCoin(utxod->first, fBitAsset, fBitAssetControl, isPreconf, nAssetID));
             // restore inputs
             if (!tx.IsCoinBase()) {
                 const COutPoint &out = tx.vin[0].prevout;
@@ -497,81 +495,22 @@ BOOST_AUTO_TEST_CASE(updatecoins_simulation_test)
             // Every 100 iterations, change the cache stack.
             if (stack.size() > 0 && InsecureRandBool() == 0) {
                 BOOST_CHECK(stack.back()->Flush());
-                delete stack.back();
                 stack.pop_back();
             }
             if (stack.size() == 0 || (stack.size() < 4 && InsecureRandBool())) {
                 CCoinsView* tip = &base;
                 if (stack.size() > 0) {
-                    tip = stack.back();
+                    tip = stack.back().get();
                 }
-                stack.push_back(new CCoinsViewCacheTest(tip));
+                stack.push_back(std::make_unique<CCoinsViewCacheTest>(tip));
             }
         }
-    }
-
-    // Clean up the stack.
-    while (stack.size() > 0) {
-        delete stack.back();
-        stack.pop_back();
     }
 
     // Verify coverage.
     BOOST_CHECK(spent_a_duplicate_coinbase);
 
     g_mock_deterministic_tests = false;
-}
-
-BOOST_AUTO_TEST_CASE(ccoins_serialization)
-{
-    // Good example
-    DataStream ss1{ParseHex("97f23c835800816115944e077fe7c803cfa57f29b36bf87c1d35")};
-    Coin cc1;
-    ss1 >> cc1;
-    BOOST_CHECK_EQUAL(cc1.fCoinBase, false);
-    BOOST_CHECK_EQUAL(cc1.nHeight, 203998U);
-    BOOST_CHECK_EQUAL(cc1.out.nValue, CAmount{60000000000});
-    BOOST_CHECK_EQUAL(HexStr(cc1.out.scriptPubKey), HexStr(GetScriptForDestination(PKHash(uint160(ParseHex("816115944e077fe7c803cfa57f29b36bf87c1d35"))))));
-
-    // Good example
-    DataStream ss2{ParseHex("8ddf77bbd123008c988f1a4a4de2161e0f50aac7f17e7f9555caa4")};
-    Coin cc2;
-    ss2 >> cc2;
-    BOOST_CHECK_EQUAL(cc2.fCoinBase, true);
-    BOOST_CHECK_EQUAL(cc2.nHeight, 120891U);
-    BOOST_CHECK_EQUAL(cc2.out.nValue, 110397);
-    BOOST_CHECK_EQUAL(HexStr(cc2.out.scriptPubKey), HexStr(GetScriptForDestination(PKHash(uint160(ParseHex("8c988f1a4a4de2161e0f50aac7f17e7f9555caa4"))))));
-
-    // Smallest possible example
-    DataStream ss3{ParseHex("000006")};
-    Coin cc3;
-    ss3 >> cc3;
-    BOOST_CHECK_EQUAL(cc3.fCoinBase, false);
-    BOOST_CHECK_EQUAL(cc3.nHeight, 0U);
-    BOOST_CHECK_EQUAL(cc3.out.nValue, 0);
-    BOOST_CHECK_EQUAL(cc3.out.scriptPubKey.size(), 0U);
-
-    // scriptPubKey that ends beyond the end of the stream
-    DataStream ss4{ParseHex("000007")};
-    try {
-        Coin cc4;
-        ss4 >> cc4;
-        BOOST_CHECK_MESSAGE(false, "We should have thrown");
-    } catch (const std::ios_base::failure&) {
-    }
-
-    // Very large scriptPubKey (3*10^9 bytes) past the end of the stream
-    DataStream tmp{};
-    uint64_t x = 3000000000ULL;
-    tmp << VARINT(x);
-    BOOST_CHECK_EQUAL(HexStr(tmp), "8a95c0bb00");
-    DataStream ss5{ParseHex("00008a95c0bb00")};
-    try {
-        Coin cc5;
-        ss5 >> cc5;
-        BOOST_CHECK_MESSAGE(false, "We should have thrown");
-    } catch (const std::ios_base::failure&) {
-    }
 }
 
 const static COutPoint OUTPOINT;
@@ -635,7 +574,8 @@ void GetCoinsMapEntry(const CCoinsMap& map, CAmount& value, char& flags, const C
 
 void WriteCoinsViewEntry(CCoinsView& view, CAmount value, char flags)
 {
-    CCoinsMap map;
+    CCoinsMapMemoryResource resource;
+    CCoinsMap map{0, CCoinsMap::hasher{}, CCoinsMap::key_equal{}, &resource};
     InsertCoinsMapEntry(map, value, flags);
     BOOST_CHECK(view.BatchWrite(map, {}));
 }
@@ -706,12 +646,12 @@ BOOST_AUTO_TEST_CASE(ccoins_access)
 }
 
 static void CheckSpendCoins(CAmount base_value, CAmount cache_value, CAmount expected_value, char cache_flags, char expected_flags)
-{
-    bool fBitAsset = false;
+{   bool fBitAsset = false;
     bool fBitAssetControl = false;
+    bool isPreconf = false;
     uint32_t nAssetID = 0;
     SingleEntryCacheTest test(base_value, cache_value, cache_flags);
-    test.cache.SpendCoin(OUTPOINT, fBitAsset, fBitAssetControl, nAssetID);
+    test.cache.SpendCoin(OUTPOINT, fBitAsset, fBitAssetControl, isPreconf, nAssetID);
     test.cache.SelfTest();
 
     CAmount result_value;
@@ -768,7 +708,7 @@ static void CheckAddCoinBase(CAmount base_value, CAmount cache_value, CAmount mo
     try {
         CTxOut output;
         output.nValue = modify_value;
-        test.cache.AddCoin(OUTPOINT, Coin(std::move(output), 1, coinbase, false, false, 0), coinbase);
+        test.cache.AddCoin(OUTPOINT, Coin(std::move(output), 1, coinbase, false, false, false, 0), coinbase);
         test.cache.SelfTest();
         GetCoinsMapEntry(test.cache.map(), result_value, result_flags);
     } catch (std::logic_error&) {
@@ -931,17 +871,18 @@ Coin MakeCoin()
 void TestFlushBehavior(
     CCoinsViewCacheTest* view,
     CCoinsViewDB& base,
-    std::vector<CCoinsViewCacheTest*>& all_caches,
+    std::vector<std::unique_ptr<CCoinsViewCacheTest>>& all_caches,
     bool do_erasing_flush)
 {
     CAmount value;
     char flags;
     size_t cache_usage;
+    size_t cache_size;
 
     auto flush_all = [&all_caches](bool erase) {
         // Flush in reverse order to ensure that flushes happen from children up.
         for (auto i = all_caches.rbegin(); i != all_caches.rend(); ++i) {
-            auto cache = *i;
+            auto& cache = *i;
             // hashBlock must be filled before flushing to disk; value is
             // unimportant here. This is normally done during connect/disconnect block.
             cache->SetBestBlock(InsecureRand256());
@@ -961,6 +902,8 @@ void TestFlushBehavior(
     view->AddCoin(outp, Coin(coin), false);
 
     cache_usage = view->DynamicMemoryUsage();
+    cache_size = view->map().size();
+
     // `base` shouldn't have coin (no flush yet) but `view` should have cached it.
     BOOST_CHECK(!base.HaveCoin(outp));
     BOOST_CHECK(view->HaveCoin(outp));
@@ -975,6 +918,7 @@ void TestFlushBehavior(
 
     // CoinsMap usage should be unchanged since we didn't erase anything.
     BOOST_CHECK_EQUAL(cache_usage, view->DynamicMemoryUsage());
+    BOOST_CHECK_EQUAL(cache_size, view->map().size());
 
     // --- 3. Ensuring the entry still exists in the cache and has been written to parent
     //
@@ -991,8 +935,10 @@ void TestFlushBehavior(
         //
         flush_all(/*erase=*/ true);
 
-        // Memory usage should have gone down.
-        BOOST_CHECK(view->DynamicMemoryUsage() < cache_usage);
+        // Memory does not necessarily go down due to the map using a memory pool
+        BOOST_TEST(view->DynamicMemoryUsage() <= cache_usage);
+        // Size of the cache must go down though
+        BOOST_TEST(view->map().size() < cache_size);
 
         // --- 5. Ensuring the entry is no longer in the cache
         //
@@ -1016,8 +962,9 @@ void TestFlushBehavior(
     //
     bool fBitAsset = false;
     bool fBitAssetControl = false;
+    bool isPreconf = false;
     uint32_t nAssetID = 0;
-    BOOST_CHECK(view->SpendCoin(outp, fBitAsset, fBitAssetControl, nAssetID));
+    BOOST_CHECK(view->SpendCoin(outp, fBitAsset, fBitAssetControl, isPreconf, nAssetID));
 
     // The coin should be in the cache, but spent and marked dirty.
     GetCoinsMapEntry(view->map(), value, flags, outp);
@@ -1033,8 +980,7 @@ void TestFlushBehavior(
     BOOST_CHECK(!base.HaveCoin(outp));
 
     // Spent coin should not be spendable.
-
-    BOOST_CHECK(!view->SpendCoin(outp, fBitAsset, fBitAssetControl, nAssetID));
+    BOOST_CHECK(!view->SpendCoin(outp, fBitAsset, fBitAssetControl, isPreconf, nAssetID));
 
     // --- Bonus check: ensure that a coin added to the base view via one cache
     //     can be spent by another cache which has never seen it.
@@ -1052,8 +998,7 @@ void TestFlushBehavior(
     BOOST_CHECK(all_caches[0]->HaveCoin(outp));
     BOOST_CHECK(!all_caches[1]->HaveCoinInCache(outp));
 
-
-    BOOST_CHECK(all_caches[1]->SpendCoin(outp, fBitAsset ,fBitAssetControl, nAssetID));
+    BOOST_CHECK(all_caches[1]->SpendCoin(outp, fBitAsset, fBitAssetControl, isPreconf, nAssetID));
     flush_all(/*erase=*/ false);
     BOOST_CHECK(!base.HaveCoin(outp));
     BOOST_CHECK(!all_caches[0]->HaveCoin(outp));
@@ -1082,7 +1027,7 @@ void TestFlushBehavior(
     // Base shouldn't have seen coin.
     BOOST_CHECK(!base.HaveCoin(outp));
 
-    BOOST_CHECK(all_caches[0]->SpendCoin(outp, fBitAsset, fBitAssetControl, nAssetID));
+    BOOST_CHECK(all_caches[0]->SpendCoin(outp, fBitAsset, fBitAssetControl, isPreconf, nAssetID));
     all_caches[0]->Sync();
 
     // Ensure there is no sign of the coin after spend/flush.
@@ -1096,21 +1041,40 @@ void TestFlushBehavior(
 BOOST_AUTO_TEST_CASE(ccoins_flush_behavior)
 {
     // Create two in-memory caches atop a leveldb view.
-    CCoinsViewDB base{"test", /*nCacheSize=*/ 1 << 23, /*fMemory=*/ true, /*fWipe=*/ false};
-    std::vector<CCoinsViewCacheTest*> caches;
-    caches.push_back(new CCoinsViewCacheTest(&base));
-    caches.push_back(new CCoinsViewCacheTest(caches.back()));
+    CCoinsViewDB base{{.path = "test", .cache_bytes = 1 << 23, .memory_only = true}, {}};
+    std::vector<std::unique_ptr<CCoinsViewCacheTest>> caches;
+    caches.push_back(std::make_unique<CCoinsViewCacheTest>(&base));
+    caches.push_back(std::make_unique<CCoinsViewCacheTest>(caches.back().get()));
 
-    for (CCoinsViewCacheTest* view : caches) {
-        TestFlushBehavior(view, base, caches, /*do_erasing_flush=*/ false);
-        TestFlushBehavior(view, base, caches, /*do_erasing_flush=*/ true);
+    for (const auto& view : caches) {
+        TestFlushBehavior(view.get(), base, caches, /*do_erasing_flush=*/false);
+        TestFlushBehavior(view.get(), base, caches, /*do_erasing_flush=*/true);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(coins_resource_is_used)
+{
+    CCoinsMapMemoryResource resource;
+    PoolResourceTester::CheckAllDataAccountedFor(resource);
+
+    {
+        CCoinsMap map{0, CCoinsMap::hasher{}, CCoinsMap::key_equal{}, &resource};
+        BOOST_TEST(memusage::DynamicUsage(map) >= resource.ChunkSizeBytes());
+
+        map.reserve(1000);
+
+        // The resource has preallocated a chunk, so we should have space for at several nodes without the need to allocate anything else.
+        const auto usage_before = memusage::DynamicUsage(map);
+
+        COutPoint out_point{};
+        for (size_t i = 0; i < 1000; ++i) {
+            out_point.n = i;
+            map[out_point];
+        }
+        BOOST_TEST(usage_before == memusage::DynamicUsage(map));
     }
 
-    // Clean up the caches.
-    while (caches.size() > 0) {
-        delete caches.back();
-        caches.pop_back();
-    }
+    PoolResourceTester::CheckAllDataAccountedFor(resource);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

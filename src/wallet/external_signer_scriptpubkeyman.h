@@ -2,8 +2,8 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef BITCOIN_WALLET_EXTERNAL_SIGNER_SCRIPTPUBKEYMAN_H
-#define BITCOIN_WALLET_EXTERNAL_SIGNER_SCRIPTPUBKEYMAN_H
+#ifndef COORDINATE_WALLET_EXTERNAL_SIGNER_SCRIPTPUBKEYMAN_H
+#define COORDINATE_WALLET_EXTERNAL_SIGNER_SCRIPTPUBKEYMAN_H
 
 #include <wallet/scriptpubkeyman.h>
 
@@ -13,11 +13,11 @@ namespace wallet {
 class ExternalSignerScriptPubKeyMan : public DescriptorScriptPubKeyMan
 {
   public:
-  ExternalSignerScriptPubKeyMan(WalletStorage& storage, WalletDescriptor& descriptor)
-      :   DescriptorScriptPubKeyMan(storage, descriptor)
+  ExternalSignerScriptPubKeyMan(WalletStorage& storage, WalletDescriptor& descriptor, int64_t keypool_size)
+      :   DescriptorScriptPubKeyMan(storage, descriptor, keypool_size)
       {}
-  ExternalSignerScriptPubKeyMan(WalletStorage& storage)
-      :   DescriptorScriptPubKeyMan(storage)
+  ExternalSignerScriptPubKeyMan(WalletStorage& storage, int64_t keypool_size)
+      :   DescriptorScriptPubKeyMan(storage, keypool_size)
       {}
 
   /** Provide a descriptor at setup time
@@ -32,4 +32,4 @@ class ExternalSignerScriptPubKeyMan : public DescriptorScriptPubKeyMan
   TransactionError FillPSBT(PartiallySignedTransaction& psbt, const PrecomputedTransactionData& txdata, int sighash_type = 1 /* SIGHASH_ALL */, bool sign = true, bool bip32derivs = false, int* n_signed = nullptr, bool finalize = true) const override;
 };
 } // namespace wallet
-#endif // BITCOIN_WALLET_EXTERNAL_SIGNER_SCRIPTPUBKEYMAN_H
+#endif // COORDINATE_WALLET_EXTERNAL_SIGNER_SCRIPTPUBKEYMAN_H

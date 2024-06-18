@@ -132,14 +132,15 @@ protected:
     std::vector<CTransactionRef> txn_available;
     size_t prefilled_count = 0, mempool_count = 0, extra_count = 0;
     const CTxMemPool* pool;
+    const CTxMemPool* preconfpool;
 public:
     CBlockHeader header;
 
-    // Can be overriden for testing
+    // Can be overridden for testing
     using CheckBlockFn = std::function<bool(const CBlock&, BlockValidationState&, const Consensus::Params&, bool, bool)>;
     CheckBlockFn m_check_block_mock{nullptr};
 
-    explicit PartiallyDownloadedBlock(CTxMemPool* poolIn) : pool(poolIn) {}
+    explicit PartiallyDownloadedBlock(CTxMemPool* poolIn, CTxMemPool* preconfPoolIn) : pool(poolIn), preconfpool(preconfPoolIn) {}
 
     // extra_txn is a list of extra transactions to look at, in <witness hash, reference> form
     ReadStatus InitData(const CBlockHeaderAndShortTxIDs& cmpctblock, const std::vector<std::pair<uint256, CTransactionRef>>& extra_txn);

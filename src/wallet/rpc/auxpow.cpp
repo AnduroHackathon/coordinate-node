@@ -45,12 +45,6 @@ private:
     /** All block hashes (in hex) that are based on the current script.  */
     std::set<std::string> blockHashes;
 
-    explicit PerWallet (const CScript& scr)
-      : coinbaseScript(scr)
-    {}
-
-    PerWallet (PerWallet&&) = default;
-
   };
 
   /**
@@ -68,61 +62,6 @@ private:
 public:
 
   ReservedKeysForMining () = default;
-
-  /**
-   * Retrieves the key to use for mining at the moment.
-   */
-  CScript
-  GetCoinbaseScript (CWallet* pwallet)
-  {
-    LOCK2 (cs, pwallet->cs_wallet);
-
-    const auto mit = data.find (pwallet->GetName ());
-    if (mit != data.end ())
-      return mit->second.coinbaseScript;
-
-    ReserveDestination rdest(pwallet, pwallet->m_default_address_type);
-    const auto op_dest = rdest.GetReservedDestination (false);
-    if (!op_dest)
-      throw JSONRPCError (RPC_WALLET_KEYPOOL_RAN_OUT,
-                          strprintf ("Failed to generate mining address: %s",
-                                     util::ErrorString (op_dest).original));
-    rdest.KeepDestination ();
-
-    const CScript res = GetScriptForDestination (*op_dest);
-    data.emplace (pwallet->GetName (), PerWallet (res));
-    return res;
-  }
-
-  /**
-   * Adds the block hash (given as hex string) of a newly constructed block
-   * to the set of blocks for the current key.
-   */
-  void
-  AddBlockHash (const CWallet* pwallet, const std::string& hashHex)
-  {
-    LOCK (cs);
-
-    const auto mit = data.find (pwallet->GetName ());
-    assert (mit != data.end ());
-    mit->second.blockHashes.insert (hashHex);
-  }
-
-  /**
-   * Marks a block as submitted, releasing the key for it (if any).
-   */
-  void
-  MarkBlockSubmitted (const CWallet* pwallet, const std::string& hashHex)
-  {
-    LOCK (cs);
-
-    const auto mit = data.find (pwallet->GetName ());
-    if (mit == data.end ())
-      return;
-
-    if (mit->second.blockHashes.count (hashHex) > 0)
-      data.erase (mit);
-  }
 
 };
 
@@ -175,24 +114,6 @@ RPCHelpMan getauxblock()
     if (pwallet->IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS)) {
         throw JSONRPCError(RPC_WALLET_ERROR, "Error: Private keys are disabled for this wallet");
     }
-
-    /* Create a new block */
-    // if (request.params.size() == 0)
-    // {
-    //     const CScript coinbaseScript = g_mining_keys.GetCoinbaseScript(pwallet);
-    //     const UniValue res = AuxpowMiner::get ().createAuxBlock(request, coinbaseScript);
-    //     g_mining_keys.AddBlockHash(pwallet, res["hash"].get_str ());
-    //     return res;
-    // }
-
-    // /* Submit a block instead.  */
-    // assert(request.params.size() == 2);
-    // const std::string& hash = request.params[0].get_str();
-
-    // const bool fAccepted
-    //     = AuxpowMiner::get ().submitAuxBlock(request, hash, request.params[1].get_str());
-    // if (fAccepted)
-    //     g_mining_keys.MarkBlockSubmitted(pwallet, hash);
 
     return true;
 },

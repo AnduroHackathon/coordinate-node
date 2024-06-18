@@ -2,12 +2,12 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef BITCOIN_WALLET_RECEIVE_H
-#define BITCOIN_WALLET_RECEIVE_H
+#ifndef COORDINATE_WALLET_RECEIVE_H
+#define COORDINATE_WALLET_RECEIVE_H
 
 #include <consensus/amount.h>
-#include <wallet/ismine.h>
 #include <wallet/transaction.h>
+#include <wallet/types.h>
 #include <wallet/wallet.h>
 
 namespace wallet {
@@ -62,4 +62,4 @@ std::map<CTxDestination, CAmount> GetAddressBalances(const CWallet& wallet);
 std::set<std::set<CTxDestination>> GetAddressGroupings(const CWallet& wallet) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
 } // namespace wallet
 
-#endif // BITCOIN_WALLET_RECEIVE_H
+#endif // COORDINATE_WALLET_RECEIVE_H

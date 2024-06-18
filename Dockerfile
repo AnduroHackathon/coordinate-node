@@ -1,9 +1,9 @@
     # Update new packages
     FROM ubuntu:22.04
 
-    LABEL maintainer="michael.casey@mara.com"
+    LABEL maintainer="dev@mara.tech"
     LABEL version="0.1"
-    LABEL description="Docker file for anduro"
+    LABEL description="Docker file for coordinate"
 
     ARG DEBIAN_FRONTEND=noninteractive
 

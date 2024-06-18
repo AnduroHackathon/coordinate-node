@@ -4,22 +4,21 @@
 
 #include <chainparams.h>
 #include <coins.h>
+#include <common/args.h>
 #include <crypto/muhash.h>
 #include <index/coinstatsindex.h>
 #include <kernel/coinstats.h>
+#include <logging.h>
 #include <node/blockstorage.h>
 #include <serialize.h>
 #include <txdb.h>
 #include <undo.h>
-#include <util/system.h>
 #include <validation.h>
 
+using kernel::ApplyCoinHash;
 using kernel::CCoinsStats;
 using kernel::GetBogoSize;
-using kernel::TxOutSer;
-
-using node::ReadBlockFromDisk;
-using node::UndoReadFromDisk;
+using kernel::RemoveCoinHash;
 
 static constexpr uint8_t DB_BLOCK_HASH{'s'};
 static constexpr uint8_t DB_BLOCK_HEIGHT{'t'};
@@ -126,7 +125,7 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
         // pindex variable gives indexing code access to node internals. It
         // will be removed in upcoming commit
         const CBlockIndex* pindex = WITH_LOCK(cs_main, return m_chainstate->m_blockman.LookupBlockIndex(block.hash));
-        if (!UndoReadFromDisk(block_undo, pindex)) {
+        if (!m_chainstate->m_blockman.UndoReadFromDisk(block_undo, *pindex)) {
             return false;
         }
 
@@ -160,7 +159,7 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
 
             for (uint32_t j = 0; j < tx->vout.size(); ++j) {
                 const CTxOut& out{tx->vout[j]};
-                Coin coin{out, block.height, tx->IsCoinBase(),false, false, 0};
+                Coin coin{out, block.height, tx->IsCoinBase(),false, false, false, 0};
                 COutPoint outpoint{tx->GetHash(), j};
 
                 // Skip unspendable coins
@@ -170,14 +169,13 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
                     continue;
                 }
 
-                m_muhash.Insert(MakeUCharSpan(TxOutSer(outpoint, coin)));
+                ApplyCoinHash(m_muhash, outpoint, coin);
 
                 if (tx->IsCoinBase()) {
                     m_total_coinbase_amount += coin.out.nValue;
                 } else {
                     m_total_new_outputs_ex_coinbase_amount += coin.out.nValue;
                 }
-
                 ++m_transaction_output_count;
                 if(!coin.IsBitAsset()) {
                    m_total_amount += coin.out.nValue;
@@ -186,7 +184,7 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
                         m_total_assets += coin.out.nValue;
                     }
                 }
-     
+
                 m_bogo_size += GetBogoSize(coin.out.scriptPubKey);
             }
 
@@ -198,7 +196,7 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
                     Coin coin{tx_undo.vprevout[j]};
                     COutPoint outpoint{tx->vin[j].prevout.hash, tx->vin[j].prevout.n};
 
-                    m_muhash.Remove(MakeUCharSpan(TxOutSer(outpoint, coin)));
+                    RemoveCoinHash(m_muhash, outpoint, coin);
 
                     m_total_prevout_spent_amount += coin.out.nValue;
 
@@ -210,7 +208,6 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
                             m_total_assets -= coin.out.nValue;
                         }
                     }
-        
                     m_bogo_size -= GetBogoSize(coin.out.scriptPubKey);
                 }
             }
@@ -254,7 +251,7 @@ bool CoinStatsIndex::CustomAppend(const interfaces::BlockInfo& block)
     return m_db->Write(DBHeightKey(block.height), value);
 }
 
-static bool CopyHeightIndexToHashIndex(CDBIterator& db_it, CDBBatch& batch,
+[[nodiscard]] static bool CopyHeightIndexToHashIndex(CDBIterator& db_it, CDBBatch& batch,
                                        const std::string& index_name,
                                        int start_height, int stop_height)
 {
@@ -298,17 +295,18 @@ bool CoinStatsIndex::CustomRewind(const interfaces::BlockKey& current_tip, const
         LOCK(cs_main);
         const CBlockIndex* iter_tip{m_chainstate->m_blockman.LookupBlockIndex(current_tip.hash)};
         const CBlockIndex* new_tip_index{m_chainstate->m_blockman.LookupBlockIndex(new_tip.hash)};
-        const auto& consensus_params{Params().GetConsensus()};
 
         do {
             CBlock block;
 
-            if (!ReadBlockFromDisk(block, iter_tip, consensus_params)) {
+            if (!m_chainstate->m_blockman.ReadBlockFromDisk(block, *iter_tip)) {
                 return error("%s: Failed to read block %s from disk",
                              __func__, iter_tip->GetBlockHash().ToString());
             }
 
-            ReverseBlock(block, iter_tip);
+            if (!ReverseBlock(block, iter_tip)) {
+                return false; // failure cause logged internally
+            }
 
             iter_tip = iter_tip->GetAncestor(iter_tip->nHeight - 1);
         } while (new_tip_index != iter_tip);
@@ -427,7 +425,7 @@ bool CoinStatsIndex::ReverseBlock(const CBlock& block, const CBlockIndex* pindex
 
     // Ignore genesis block
     if (pindex->nHeight > 0) {
-        if (!UndoReadFromDisk(block_undo, pindex)) {
+        if (!m_chainstate->m_blockman.UndoReadFromDisk(block_undo, *pindex)) {
             return false;
         }
 
@@ -454,7 +452,7 @@ bool CoinStatsIndex::ReverseBlock(const CBlock& block, const CBlockIndex* pindex
         for (uint32_t j = 0; j < tx->vout.size(); ++j) {
             const CTxOut& out{tx->vout[j]};
             COutPoint outpoint{tx->GetHash(), j};
-            Coin coin{out, pindex->nHeight, tx->IsCoinBase(),false, false, 0};
+            Coin coin{out, pindex->nHeight, tx->IsCoinBase(),false, false, false, 0};
 
             // Skip unspendable coins
             if (coin.out.scriptPubKey.IsUnspendable()) {
@@ -463,7 +461,7 @@ bool CoinStatsIndex::ReverseBlock(const CBlock& block, const CBlockIndex* pindex
                 continue;
             }
 
-            m_muhash.Remove(MakeUCharSpan(TxOutSer(outpoint, coin)));
+            RemoveCoinHash(m_muhash, outpoint, coin);
 
             if (tx->IsCoinBase()) {
                 m_total_coinbase_amount -= coin.out.nValue;
@@ -479,7 +477,6 @@ bool CoinStatsIndex::ReverseBlock(const CBlock& block, const CBlockIndex* pindex
                    m_total_assets -= coin.out.nValue;
                 }
             }
-
             m_bogo_size -= GetBogoSize(coin.out.scriptPubKey);
         }
 
@@ -491,20 +488,18 @@ bool CoinStatsIndex::ReverseBlock(const CBlock& block, const CBlockIndex* pindex
                 Coin coin{tx_undo.vprevout[j]};
                 COutPoint outpoint{tx->vin[j].prevout.hash, tx->vin[j].prevout.n};
 
-                m_muhash.Insert(MakeUCharSpan(TxOutSer(outpoint, coin)));
+                ApplyCoinHash(m_muhash, outpoint, coin);
 
                 m_total_prevout_spent_amount -= coin.out.nValue;
 
                 m_transaction_output_count++;
-               if(!coin.IsBitAsset()) {
+                if(!coin.IsBitAsset()) {
                    m_total_amount += coin.out.nValue;
                 } else {
                    if(!coin.IsBitAssetController()) {
                         m_total_assets += coin.out.nValue;
                    }
-               
                 }
-      
                 m_bogo_size += GetBogoSize(coin.out.scriptPubKey);
             }
         }

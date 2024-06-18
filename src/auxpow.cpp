@@ -13,7 +13,7 @@
 #include <primitives/block.h>
 #include <script/script.h>
 #include <util/strencodings.h>
-#include <util/system.h>
+#include <logging.h>
 
 #include <algorithm>
 
@@ -50,7 +50,7 @@ CAuxPow::check (const uint256& hashAuxBlock, int nChainId,
     // Check that the chain merkle root is in the coinbase
     const uint256 nRootHash
       = CheckMerkleBranch (hashAuxBlock, vChainMerkleBranch, nChainIndex);
-    valtype vchRootHash(nRootHash.begin (), nRootHash.end ());
+    std::vector<unsigned char> vchRootHash(nRootHash.begin (), nRootHash.end ());
     std::reverse (vchRootHash.begin (), vchRootHash.end ()); // correct endian
 
     // Check that we are in the parent block merkle tree
@@ -171,7 +171,7 @@ CAuxPow::createAuxPow (const CPureBlockHeader& header)
 
   /* Build a minimal coinbase script input for merge-mining.  */
   const uint256 blockHash = header.GetHash ();
-  valtype inputData(blockHash.begin (), blockHash.end ());
+  std::vector<unsigned char> inputData(blockHash.begin (), blockHash.end ());
   std::reverse (inputData.begin (), inputData.end ());
   inputData.push_back (1);
   inputData.insert (inputData.end (), 7, 0);

@@ -25,7 +25,7 @@ You will first need to pick a difficulty target. Since signet chains are primari
 
     cd src/
     MINER="../contrib/signet/miner"
-    GRIND="./bitcoin-util grind"
+    GRIND="./coordinate-util grind"
     $MINER calibrate --grind-cmd="$GRIND"
     nbits=1e00f403 for 25s average mining time
 

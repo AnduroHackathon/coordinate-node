@@ -6,8 +6,8 @@
 /**
  * Utilities for converting data from/to strings.
  */
-#ifndef BITCOIN_UTIL_STRENCODINGS_H
-#define BITCOIN_UTIL_STRENCODINGS_H
+#ifndef COORDINATE_UTIL_STRENCODINGS_H
+#define COORDINATE_UTIL_STRENCODINGS_H
 
 #include <span.h>
 #include <util/string.h>
@@ -17,8 +17,8 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
-#include <string>
-#include <string_view>
+#include <string>      // IWYU pragma: export
+#include <string_view> // IWYU pragma: export
 #include <system_error>
 #include <type_traits>
 #include <vector>
@@ -57,9 +57,15 @@ enum class ByteUnit : uint64_t {
 * @return           A new string without unsafe chars
 */
 std::string SanitizeString(std::string_view str, int rule = SAFE_CHARS_DEFAULT);
-/** Parse the hex string into bytes (uint8_t or std::byte). Ignores whitespace. */
+/** Parse the hex string into bytes (uint8_t or std::byte). Ignores whitespace. Returns nullopt on invalid input. */
+template <typename Byte = std::byte>
+std::optional<std::vector<Byte>> TryParseHex(std::string_view str);
+/** Like TryParseHex, but returns an empty vector on invalid input. */
 template <typename Byte = uint8_t>
-std::vector<Byte> ParseHex(std::string_view str);
+std::vector<Byte> ParseHex(std::string_view hex_str)
+{
+    return TryParseHex<Byte>(hex_str).value_or(std::vector<Byte>{});
+}
 signed char HexDigit(char c);
 /* Returns true if each character in str is a hex character, and has an even
  * number of hex digits.*/
@@ -371,4 +377,4 @@ std::string Capitalize(std::string str);
  */
 std::optional<uint64_t> ParseByteUnits(std::string_view str, ByteUnit default_multiplier);
 
-#endif // BITCOIN_UTIL_STRENCODINGS_H
+#endif // COORDINATE_UTIL_STRENCODINGS_H

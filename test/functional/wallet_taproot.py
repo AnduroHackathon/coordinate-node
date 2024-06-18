@@ -182,7 +182,7 @@ def compute_taproot_address(pubkey, scripts):
     return output_key_to_p2tr(taproot_construct(pubkey, scripts).output_pubkey)
 
 def compute_raw_taproot_address(pubkey):
-    return encode_segwit_address("ccrt", 1, pubkey)
+    return encode_segwit_address("bcrt", 1, pubkey)
 
 class WalletTaprootTest(BitcoinTestFramework):
     """Test generation and spending of P2TR address outputs."""
@@ -378,7 +378,7 @@ class WalletTaprootTest(BitcoinTestFramework):
             assert psbt_online.gettransaction(txid)['confirmations'] > 0
 
         # Cleanup
-        psbt = psbt_online.sendall(recipients=[self.boring.getnewaddress()], options={"psbt": True})["psbt"]
+        psbt = psbt_online.sendall(recipients=[self.boring.getnewaddress()], psbt=True)["psbt"]
         res = psbt_offline.walletprocesspsbt(psbt=psbt, finalize=False)
         rawtx = self.nodes[0].finalizepsbt(res['psbt'])['hex']
         txid = self.nodes[0].sendrawtransaction(rawtx)

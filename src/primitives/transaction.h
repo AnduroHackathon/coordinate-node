@@ -31,6 +31,7 @@
  * or with `ADDRV2_FORMAT`.
  */
 static const int SERIALIZE_TRANSACTION_NO_WITNESS = 0x40000000;
+static const int TRANSACTION_PRECONF_VERSION = 9;
 static const int TRANSACTION_COORDINATE_ASSET_CREATE_VERSION = 10;
 static const int TRANSACTION_COORDINATE_ASSET_TRANSFER_VERSION = 11;
 
@@ -157,13 +158,12 @@ public:
 /** An output of a transaction.  It contains the public key that the next input
  * must be able to sign with to claim it.
  */
-
-
 class CTxOut
 {
 public:
     CAmount nValue;
     CScript scriptPubKey;
+
     CTxOut()
     {
         SetNull();
@@ -171,15 +171,12 @@ public:
 
     CTxOut(const CAmount& nValueIn, CScript scriptPubKeyIn);
 
-    SERIALIZE_METHODS(CTxOut, obj) { 
-        READWRITE(obj.nValue, obj.scriptPubKey); 
-    }
+    SERIALIZE_METHODS(CTxOut, obj) { READWRITE(obj.nValue, obj.scriptPubKey); }
 
     void SetNull()
     {
         nValue = -1;
         scriptPubKey.clear();
-
     }
 
     bool IsNull() const
@@ -227,6 +224,7 @@ inline void UnserializeTransaction(TxType& tx, Stream& s) {
     s >> tx.nVersion;
     if (tx.nVersion == TRANSACTION_COORDINATE_ASSET_CREATE_VERSION) {
         s >> tx.assetType;
+        s >> tx.precision;
         s >> tx.ticker;
         s >> tx.headline;
         s >> tx.payload;
@@ -263,8 +261,6 @@ inline void UnserializeTransaction(TxType& tx, Stream& s) {
         /* Unknown flag in the serialization */
         throw std::ios_base::failure("Unknown transaction optional data");
     }
-    
-
     s >> tx.nLockTime;
 }
 
@@ -275,6 +271,7 @@ inline void SerializeTransaction(const TxType& tx, Stream& s) {
     s << tx.nVersion;
     if (tx.nVersion == TRANSACTION_COORDINATE_ASSET_CREATE_VERSION) {
         s << tx.assetType;
+        s << tx.precision;
         s << tx.ticker;
         s << tx.headline;
         s << tx.payload;
@@ -301,8 +298,6 @@ inline void SerializeTransaction(const TxType& tx, Stream& s) {
             s << tx.vin[i].scriptWitness.stack;
         }
     }
-
-
     s << tx.nLockTime;
 }
 
@@ -335,13 +330,15 @@ public:
     // 1 - Non-Fungible
     // 2 - Non-Fungible collection
     const int32_t assetType;
+    // precision
+    // 0 - if asset type is 1 and 2
+    // 1 to 8 for asset type 0
+    const int32_t precision;
     const std::string ticker;
     const std::string headline;
     const uint256 payload;
     mutable std::string payloadData;
     const uint32_t nLockTime;
-
-
 
 private:
     /** Memory only. */
@@ -352,7 +349,6 @@ private:
     uint256 ComputeWitnessHash() const;
 
 public:
- 
     /** Convert a CMutableTransaction into a CTransaction. */
     explicit CTransaction(const CMutableTransaction& tx);
     explicit CTransaction(CMutableTransaction&& tx);
@@ -418,13 +414,13 @@ struct CMutableTransaction
     std::vector<CTxIn> vin;
     std::vector<CTxOut> vout;
     int32_t nVersion;
+    uint32_t nLockTime;
     int32_t assetType;
+    int32_t precision;
     std::string ticker;
     std::string headline;
     uint256 payload;
     mutable std::string payloadData;
-    uint32_t nLockTime;
-
 
     explicit CMutableTransaction();
     explicit CMutableTransaction(const CTransaction& tx);

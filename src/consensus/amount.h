@@ -6,7 +6,6 @@
 #ifndef BITCOIN_CONSENSUS_AMOUNT_H
 #define BITCOIN_CONSENSUS_AMOUNT_H
 
-
 #include <cstdint>
 #include <limits>
 

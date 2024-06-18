@@ -3,12 +3,10 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#ifndef BITCOIN_UTIL_TIME_H
-#define BITCOIN_UTIL_TIME_H
+#ifndef COORDINATE_UTIL_TIME_H
+#define COORDINATE_UTIL_TIME_H
 
-#include <compat/compat.h>
-
-#include <chrono>
+#include <chrono> // IWYU pragma: export
 #include <cstdint>
 #include <string>
 
@@ -28,6 +26,8 @@ using SteadyClock = std::chrono::steady_clock;
 using SteadySeconds = std::chrono::time_point<std::chrono::steady_clock, std::chrono::seconds>;
 using SteadyMilliseconds = std::chrono::time_point<std::chrono::steady_clock, std::chrono::milliseconds>;
 using SteadyMicroseconds = std::chrono::time_point<std::chrono::steady_clock, std::chrono::microseconds>;
+
+using SystemClock = std::chrono::system_clock;
 
 void UninterruptibleSleep(const std::chrono::microseconds& n);
 
@@ -63,16 +63,11 @@ using MillisecondsDouble = std::chrono::duration<double, std::chrono::millisecon
  * DEPRECATED
  * Use either ClockType::now() or Now<TimePointType>() if a cast is needed.
  * ClockType is
- * - std::chrono::steady_clock for steady time
- * - std::chrono::system_clock for system time
- * - NodeClock                 for mockable system time
+ * - SteadyClock/std::chrono::steady_clock for steady time
+ * - SystemClock/std::chrono::system_clock for system time
+ * - NodeClock                             for mockable system time
  */
 int64_t GetTime();
-
-/** Returns the system time (not mockable) */
-int64_t GetTimeMillis();
-/** Returns the system time (not mockable) */
-int64_t GetTimeMicros();
 
 /**
  * DEPRECATED
@@ -124,4 +119,4 @@ struct timeval MillisToTimeval(std::chrono::milliseconds ms);
 /** Sanity check epoch match normal Unix epoch */
 bool ChronoSanityCheck();
 
-#endif // BITCOIN_UTIL_TIME_H
+#endif // COORDINATE_UTIL_TIME_H

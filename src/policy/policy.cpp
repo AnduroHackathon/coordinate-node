@@ -15,7 +15,7 @@
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
 #include <script/script.h>
-#include <script/standard.h>
+#include <script/solver.h>
 #include <serialize.h>
 #include <span.h>
 
@@ -94,14 +94,17 @@ bool IsStandard(const CScript& scriptPubKey, const std::optional<unsigned>& max_
 
 bool IsStandardTx(const CTransaction& tx, const std::optional<unsigned>& max_datacarrier_bytes, bool permit_bare_multisig, const CFeeRate& dust_relay_fee, std::string& reason)
 {
-    if (tx.nVersion != TRANSACTION_COORDINATE_ASSET_CREATE_VERSION && tx.nVersion != TRANSACTION_COORDINATE_ASSET_TRANSFER_VERSION) {
+    if (tx.nVersion != TRANSACTION_COORDINATE_ASSET_CREATE_VERSION && tx.nVersion != TRANSACTION_COORDINATE_ASSET_TRANSFER_VERSION && tx.nVersion != TRANSACTION_PRECONF_VERSION) {
         if (tx.nVersion > TX_MAX_STANDARD_VERSION || tx.nVersion < 1) {
             reason = "version";
             return false;
         }
     }
-    
 
+    // Extremely large transactions with lots of inputs can cost the network
+    // almost as much to process as they cost the sender in fees, because
+    // computing signature hashes is O(ninputs*txsize). Limiting transactions
+    // to MAX_STANDARD_TX_WEIGHT mitigates CPU exhaustion attacks.
     //size modification for asset creation version
     if (tx.nVersion == TRANSACTION_COORDINATE_ASSET_CREATE_VERSION) {
         unsigned int sz = GetTransactionWeight(tx);
@@ -116,13 +119,6 @@ bool IsStandardTx(const CTransaction& tx, const std::optional<unsigned>& max_dat
             return false;
         }
     }
-
-    // Extremely large transactions with lots of inputs can cost the network
-    // almost as much to process as they cost the sender in fees, because
-    // computing signature hashes is O(ninputs*txsize). Limiting transactions
-    // to MAX_STANDARD_TX_WEIGHT mitigates CPU exhaustion attacks.
-
-
     for (const CTxIn& txin : tx.vin)
     {
         // Biggest 'standard' txin involving only keys is a 15-of-15 P2SH
@@ -157,11 +153,10 @@ bool IsStandardTx(const CTransaction& tx, const std::optional<unsigned>& max_dat
             reason = "bare-multisig";
             return false;
         } else if (IsDust(txout, dust_relay_fee)) {
-            if (tx.nVersion != TRANSACTION_COORDINATE_ASSET_CREATE_VERSION && tx.nVersion != TRANSACTION_COORDINATE_ASSET_TRANSFER_VERSION) {
+            if (tx.nVersion != TRANSACTION_COORDINATE_ASSET_CREATE_VERSION && tx.nVersion != TRANSACTION_COORDINATE_ASSET_TRANSFER_VERSION && tx.nVersion != TRANSACTION_PRECONF_VERSION) {
                reason = "dust";
                return false;
             }
-
         }
     }
 
@@ -257,6 +252,7 @@ bool AreCoordinateTransactionStandard(const CTransaction& tx, CCoinsViewCache& m
     return true;
 }
 
+
 /**
  * Check transaction inputs to mitigate two
  * potential denial-of-service attacks:
@@ -275,16 +271,15 @@ bool AreCoordinateTransactionStandard(const CTransaction& tx, CCoinsViewCache& m
  *
  * Note that only the non-witness portion of the transaction is checked here.
  */
-
 bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs)
 {
     if (tx.IsCoinBase()) {
         return true; // Coinbases don't use vin normally
     }
 
-
     for (unsigned int i = 0; i < tx.vin.size(); i++) {
         const CTxOut& prev = mapInputs.AccessCoin(tx.vin[i].prevout).out;
+
         std::vector<std::vector<unsigned char> > vSolutions;
         TxoutType whichType = Solver(prev.scriptPubKey, vSolutions);
         if (whichType == TxoutType::NONSTANDARD || whichType == TxoutType::WITNESS_UNKNOWN) {

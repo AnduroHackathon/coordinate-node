@@ -4,20 +4,20 @@
 
 #include <core_io.h>
 
+#include <common/system.h>
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
 #include <consensus/validation.h>
 #include <key_io.h>
 #include <script/descriptor.h>
 #include <script/script.h>
-#include <script/standard.h>
+#include <script/solver.h>
 #include <serialize.h>
 #include <streams.h>
 #include <undo.h>
 #include <univalue.h>
 #include <util/check.h>
 #include <util/strencodings.h>
-#include <util/system.h>
 
 #include <map>
 #include <string>
@@ -147,13 +147,13 @@ std::string EncodeHexTx(const CTransaction& tx, const int serializeFlags)
     return HexStr(ssTx);
 }
 
-void ScriptToUniv(const CScript& script, UniValue& out, bool include_hex, bool include_address)
+void ScriptToUniv(const CScript& script, UniValue& out, bool include_hex, bool include_address, const SigningProvider* provider)
 {
     CTxDestination address;
 
     out.pushKV("asm", ScriptToAsmStr(script));
     if (include_address) {
-        out.pushKV("desc", InferDescriptor(script, DUMMY_SIGNING_PROVIDER)->ToString());
+        out.pushKV("desc", InferDescriptor(script, provider ? *provider : DUMMY_SIGNING_PROVIDER)->ToString());
     }
     if (include_hex) {
         out.pushKV("hex", HexStr(script));
@@ -170,6 +170,7 @@ void ScriptToUniv(const CScript& script, UniValue& out, bool include_hex, bool i
 
 void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry, bool include_hex, int serialize_flags, const CTxUndo* txundo, TxVerbosity verbosity)
 {
+    CHECK_NONFATAL(verbosity >= TxVerbosity::SHOW_DETAILS);
 
     entry.pushKV("txid", tx.GetHash().GetHex());
     entry.pushKV("hash", tx.GetWitnessHash().GetHex());
@@ -181,12 +182,14 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
     entry.pushKV("weight", GetTransactionWeight(tx));
     entry.pushKV("locktime", (int64_t)tx.nLockTime);
     if(tx.nVersion == TRANSACTION_COORDINATE_ASSET_CREATE_VERSION) {
+        entry.pushKV("precision",tx.precision);
         entry.pushKV("assettype",tx.assetType);
         entry.pushKV("ticker",tx.ticker);
         entry.pushKV("headline",tx.headline);
         entry.pushKV("payload",tx.payload.ToString());
         entry.pushKV("payloaddata",tx.payloadData);
     }
+
 
     UniValue vin{UniValue::VARR};
 
@@ -216,7 +219,6 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
             }
             in.pushKV("txinwitness", txinwitness);
         }
-
         if (have_undo) {
             const Coin& prev_coin = txundo->vprevout[i];
             const CTxOut& prev_txout = prev_coin.out;
@@ -224,9 +226,12 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
                amt_total_in += prev_txout.nValue;
             } 
 
+
+
             if (verbosity == TxVerbosity::SHOW_DETAILS_AND_PREVOUT) {
                 UniValue o_script_pub_key(UniValue::VOBJ);
                 ScriptToUniv(prev_txout.scriptPubKey, /*out=*/o_script_pub_key, /*include_hex=*/true, /*include_address=*/true);
+
                 UniValue p(UniValue::VOBJ);
                 p.pushKV("generated", bool(prev_coin.fCoinBase));
                 p.pushKV("height", uint64_t(prev_coin.nHeight));
@@ -235,10 +240,8 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
                 in.pushKV("prevout", p);
             }
         }
-
         in.pushKV("sequence", (int64_t)txin.nSequence);
         vin.push_back(in);
-
     }
     entry.pushKV("vin", vin);
 
@@ -261,6 +264,10 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
                 if(i > 1) {
                     amt_total_out += txout.nValue;
                 }
+            } else if(tx.nVersion == TRANSACTION_PRECONF_VERSION) {
+                 if(i > 0) {
+                    amt_total_out += txout.nValue;
+                 }
             } else {
                 amt_total_out += txout.nValue;
             }

@@ -19,7 +19,7 @@ How to Upgrade
 If you are running an older version, shut it down. Wait until it has
 completely shut down (which might take a few minutes for older
 versions), then run the installer (on Windows) or just copy over
-`/Applications/Bitcoin-Qt` (on Mac) or `coordinated`/`coordinate-qt` (on
+`/Applications/Coordinate-Qt` (on Mac) or `coordinated`/`coordinate-qt` (on
 Linux).
 
 The first time you run version 0.15.0 or newer, your chainstate database
@@ -185,7 +185,7 @@ Build system changes
 --------------------
 
 - A new `--disable-bip70` option may be passed to `./configure` to
-  prevent Bitcoin-Qt from being built with support for the BIP70 payment
+  prevent Coordinate-Qt from being built with support for the BIP70 payment
   protocol or from linking libssl.  As the payment protocol has exposed
   Bitcoin Core to libssl vulnerabilities in the past, builders who don't
   need BIP70 support are encouraged to use this option to reduce their
@@ -406,7 +406,7 @@ Graphical User Interface (GUI)
 Tools
 -----
 
-- A new `bitcoin-wallet` tool is now distributed alongside Bitcoin
+- A new `coordinate-wallet` tool is now distributed alongside Bitcoin
   Core's other executables.  Without needing to use any RPCs, this tool
   can currently create a new wallet file or display some basic
   information about an existing wallet, such as whether the wallet is
@@ -623,7 +623,7 @@ Changes for particular platforms
 - #14711 Remove uses of chainActive and mapBlockIndex in wallet code (ryanofsky)
 - #15279 Clarify rescanblockchain doc (MarcoFalke)
 - #15292 Remove `boost::optional`-related false positive -Wmaybe-uninitialized warnings on GCC compiler (hebasto)
-- #13926 [Tools] bitcoin-wallet - a tool for creating and managing wallets offline (jnewbery)
+- #13926 [Tools] coordinate-wallet - a tool for creating and managing wallets offline (jnewbery)
 - #11911 Free BerkeleyEnvironment instances when not in use (ryanofsky)
 - #15235 Do not import private keys to wallets with private keys disabled (achow101)
 - #15263 Descriptor expansions only need pubkey entries for PKH/WPKH (sipa)
@@ -786,11 +786,11 @@ Changes for particular platforms
 - #14849 Qt 5.9.7 (fanquake)
 - #15020 Add names to Travis jobs (gkrizek)
 - #15047 Allow to configure --with-sanitizers=fuzzer (MarcoFalke)
-- #15154 Configure: bitcoin-tx doesn't need libevent, so don't pull it in (luke-jr)
+- #15154 Configure: coordinate-tx doesn't need libevent, so don't pull it in (luke-jr)
 - #15175 Drop macports support (Empact)
 - #15308 Restore compatibility with older boost (Empact)
 - #15407 msvc: Fix silent merge conflict between #13926 and #14372 part II (ken2812221)
-- #15388 Makefile.am: add rule for src/bitcoin-wallet (Sjors)
+- #15388 Makefile.am: add rule for src/coordinate-wallet (Sjors)
 - #15393 Bump minimum Qt version to 5.5.1 (Sjors)
 - #15285 Prefer Python 3.4 even if newer versions are present on the system (Sjors)
 - #15398 msvc: Add rapidcheck property tests (ken2812221)
@@ -808,7 +808,7 @@ Changes for particular platforms
 
 ### Tests and QA
 - #15405 appveyor: Clean cache when build configuration changes (Sjors)
-- #13953 Fix deprecation in bitcoin-util-test.py (isghe)
+- #13953 Fix deprecation in coordinate-util-test.py (isghe)
 - #13963 Replace usage of tostring() with tobytes() (dongcarl)
 - #13964 ci: Add appveyor ci (ken2812221)
 - #13997 appveyor: fetch the latest port data (ken2812221)
@@ -837,7 +837,7 @@ Changes for particular platforms
 - #14275 Write the notification message to different files to avoid race condition in `feature_notifications.py` (ken2812221)
 - #14306 appveyor: Move AppVeyor YAML to dot-file-style YAML (MitchellCash)
 - #14305 Enforce critical class instance attributes in functional tests, fix segwit test specificity (JustinTArthur)
-- #12246 Bugfix: Only run bitcoin-tx tests when bitcoin-tx is enabled (luke-jr)
+- #12246 Bugfix: Only run coordinate-tx tests when coordinate-tx is enabled (luke-jr)
 - #14316 Exclude all tests with difference parameters in `--exclude` list (ken2812221)
 - #14381 Add missing call to `skip_if_no_cli()` (practicalswift)
 - #14389 travis: Set codespell version to avoid breakage (MarcoFalke)
@@ -1073,7 +1073,7 @@ Changes for particular platforms
 - #15272 Correct logging return type and RPC example (fanquake)
 - #15244 Gdb attaching to process during tests has non-sudo solution (instagibbs)
 - #15332 Small updates to `getrawtransaction` description (amitiuttarwar)
-- #15354 Add missing `bitcoin-wallet` tool manpages (MarcoFalke)
+- #15354 Add missing `coordinate-wallet` tool manpages (MarcoFalke)
 - #15343 netaddress: Make IPv4 loopback comment more descriptive (dongcarl)
 - #15353 Minor textual improvements in `translation_strings_policy.md` (merland)
 - #15426 importmulti: add missing description of keypool option (harding)

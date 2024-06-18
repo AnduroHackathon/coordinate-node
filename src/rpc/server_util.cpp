@@ -4,13 +4,14 @@
 
 #include <rpc/server_util.h>
 
+#include <common/args.h>
 #include <net_processing.h>
 #include <node/context.h>
 #include <policy/fees.h>
 #include <rpc/protocol.h>
 #include <rpc/request.h>
 #include <txmempool.h>
-#include <util/system.h>
+#include <util/any.h>
 #include <validation.h>
 
 #include <any>
@@ -26,22 +27,6 @@ NodeContext& EnsureAnyNodeContext(const std::any& context)
     return *node_context;
 }
 
-/**
- * Auxpow code may have both a wallet and a node context, which we need
- * to handle when looking for the context.
- */
-NodeContext& EnsureAnyNodeContext(const JSONRPCRequest& request)
-{
-  auto nodePtr = util::AnyPtr<NodeContext> (request.context);
-  /* The auxpow methods may have both a wallet and a node context.  */
-  if (!nodePtr)
-      nodePtr = util::AnyPtr<NodeContext> (request.context2);
-  if (!nodePtr)
-      throw JSONRPCError(RPC_INTERNAL_ERROR, "Node context not found");
-  return *nodePtr;
-}
-
-
 CTxMemPool& EnsureMemPool(const NodeContext& node)
 {
     if (!node.mempool) {
@@ -53,6 +38,20 @@ CTxMemPool& EnsureMemPool(const NodeContext& node)
 CTxMemPool& EnsureAnyMemPool(const std::any& context)
 {
     return EnsureMemPool(EnsureAnyNodeContext(context));
+}
+
+
+BanMan& EnsureBanman(const NodeContext& node)
+{
+    if (!node.banman) {
+        throw JSONRPCError(RPC_DATABASE_ERROR, "Error: Ban database not loaded");
+    }
+    return *node.banman;
+}
+
+BanMan& EnsureAnyBanman(const std::any& context)
+{
+    return EnsureBanman(EnsureAnyNodeContext(context));
 }
 
 ArgsManager& EnsureArgsman(const NodeContext& node)
@@ -108,4 +107,17 @@ PeerManager& EnsurePeerman(const NodeContext& node)
         throw JSONRPCError(RPC_CLIENT_P2P_DISABLED, "Error: Peer-to-peer functionality missing or disabled");
     }
     return *node.peerman;
+}
+
+AddrMan& EnsureAddrman(const NodeContext& node)
+{
+    if (!node.addrman) {
+        throw JSONRPCError(RPC_CLIENT_P2P_DISABLED, "Error: Address manager functionality missing or disabled");
+    }
+    return *node.addrman;
+}
+
+AddrMan& EnsureAnyAddrman(const std::any& context)
+{
+    return EnsureAddrman(EnsureAnyNodeContext(context));
 }

@@ -19,7 +19,6 @@
 #include <util/strencodings.h>
 #include <util/time.h>
 #include <auxpow.h>
-#include <anduro_deposit.h>
 #include <cassert>
 
 namespace
@@ -37,7 +36,7 @@ void auxMiningCheck(const node::NodeContext& node)
     throw JSONRPCError (RPC_CLIENT_NOT_CONNECTED,
                         "Coordinate is not connected!");
 
-  if (chainman.ActiveChainstate ().IsInitialBlockDownload ()
+  if (chainman.IsInitialBlockDownload ()
         && !Params ().MineBlocksOnDemand ())
     throw JSONRPCError (RPC_CLIENT_IN_INITIAL_DOWNLOAD,
                         "Coordinate is downloading blocks...");
@@ -145,7 +144,7 @@ AuxpowMiner::createAuxBlock (const JSONRPCRequest& request,
 {
   LOCK (cs);
 
-  const auto& node = EnsureAnyNodeContext (request);
+  const auto& node = EnsureAnyNodeContext (request.context);
   auxMiningCheck (node);
   const auto& mempool = EnsureMemPool (node);
   const auto& chainman = EnsureChainman (node);
@@ -170,7 +169,7 @@ AuxpowMiner::submitAuxBlock (const JSONRPCRequest& request,
                              const std::string& hashHex,
                              const std::string& auxpowHex) const
 {
-  const auto& node = EnsureAnyNodeContext (request);
+  const auto& node = EnsureAnyNodeContext (request.context);
   auxMiningCheck (node);
   auto& chainman = EnsureChainman (node);
 
@@ -187,7 +186,6 @@ AuxpowMiner::submitAuxBlock (const JSONRPCRequest& request,
   ss >> *pow;
   shared_block->SetAuxpow (std::move (pow));
   assert (shared_block->GetHash ().GetHex () == hashHex);
-
   return chainman.ProcessNewBlock (shared_block, /*force_processing=*/true,
                                    /*min_pow_checked=*/true, nullptr);
 }

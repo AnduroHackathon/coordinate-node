@@ -8,7 +8,6 @@
 #include <node/miner.h>
 #include <rpc/request.h>
 #include <script/script.h>
-#include <script/standard.h>
 #include <sync.h>
 #include <txmempool.h>
 #include <uint256.h>
@@ -20,10 +19,6 @@
 #include <vector>
 
 class ChainstateManager;
-namespace node {
-class CBlockTemplate;
-} // namespace node
-
 namespace auxpow_tests
 {
 class AuxpowMinerForTest;

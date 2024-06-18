@@ -46,12 +46,12 @@ static const int TOOLTIP_WRAP_THRESHOLD = 80;
 /* Number of frames in spinner animation */
 #define SPINNER_FRAMES 36
 
-#define QAPP_ORG_NAME "Bitcoin"
-#define QAPP_ORG_DOMAIN "bitcoin.org"
-#define QAPP_APP_NAME_DEFAULT "Bitcoin-Qt"
-#define QAPP_APP_NAME_TESTNET "Bitcoin-Qt-testnet"
-#define QAPP_APP_NAME_SIGNET "Bitcoin-Qt-signet"
-#define QAPP_APP_NAME_REGTEST "Bitcoin-Qt-regtest"
+#define QAPP_ORG_NAME "Coordinate"
+#define QAPP_ORG_DOMAIN "anduro.io"
+#define QAPP_APP_NAME_DEFAULT "Coordinate-Qt"
+#define QAPP_APP_NAME_TESTNET "Coordinate-Qt-testnet"
+#define QAPP_APP_NAME_SIGNET "Coordinate-Qt-signet"
+#define QAPP_APP_NAME_REGTEST "Coordinate-Qt-regtest"
 
 /* One gigabyte (GB) in bytes */
 static constexpr uint64_t GB_BYTES{1000000000};

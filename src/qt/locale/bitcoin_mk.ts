@@ -285,10 +285,6 @@
         <translation type="unfinished">Провизија:</translation>
     </message>
     <message>
-        <source>Dust:</source>
-        <translation type="unfinished">Прашина:</translation>
-    </message>
-    <message>
         <source>After Fee:</source>
         <translation type="unfinished">После Провизија:</translation>
     </message>
@@ -339,6 +335,30 @@
     <message>
         <source>Bitcoin</source>
         <translation type="unfinished">Биткоин</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n GB of space available</source>
+        <translation type="unfinished">
+            <numerusform />
+            <numerusform />
+            <numerusform />
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>(of %n GB needed)</source>
+        <translation type="unfinished">
+            <numerusform />
+            <numerusform />
+            <numerusform />
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>(%n GB needed for full chain)</source>
+        <translation type="unfinished">
+            <numerusform />
+            <numerusform />
+            <numerusform />
+        </translation>
     </message>
     <message numerus="yes">
         <source>(sufficient to restore backups %n day(s) old)</source>
@@ -513,10 +533,6 @@
     <message>
         <source>Change:</source>
         <translation type="unfinished">Кусур:</translation>
-    </message>
-    <message>
-        <source>Dust:</source>
-        <translation type="unfinished">Прашина:</translation>
     </message>
     <message numerus="yes">
         <source>Estimated to begin confirmation within %n block(s).</source>

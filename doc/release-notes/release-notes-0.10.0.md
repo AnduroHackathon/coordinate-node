@@ -17,7 +17,7 @@ How to Upgrade
 
 If you are running an older version, shut it down. Wait until it has completely
 shut down (which might take a few minutes for older versions), then run the
-installer (on Windows) or just copy over /Applications/Bitcoin-Qt (on Mac) or
+installer (on Windows) or just copy over /Applications/Coordinate-Qt (on Mac) or
 coordinated/coordinate-qt (on Linux).
 
 Downgrading warning
@@ -252,7 +252,7 @@ actually using them on mainnet has been previously inconvenient as
 standard Bitcoin Core nodes wouldn't relay them to miners, nor would
 most miners include them in blocks they mined.
 
-bitcoin-tx
+coordinate-tx
 ----------
 
 It has been observed that many of the RPC functions offered by coordinated are
@@ -260,9 +260,9 @@ It has been observed that many of the RPC functions offered by coordinated are
 included many of the RPC "raw transaction" API functions, such as
 createrawtransaction.
 
-bitcoin-tx is a newly introduced command line utility designed to enable easy
+coordinate-tx is a newly introduced command line utility designed to enable easy
 manipulation of bitcoin transactions. A summary of its operation may be
-obtained via "bitcoin-tx --help" Transactions may be created or signed in a
+obtained via "coordinate-tx --help" Transactions may be created or signed in a
 manner similar to the RPC raw tx API. Transactions may be updated, deleting
 inputs or outputs, or appending new inputs and outputs. Custom scripts may be
 easily composed using a simple text notation, borrowed from the bitcoin test
@@ -391,7 +391,7 @@ Command-line options:
 - `4278b1d` Clarify error message when invalid -rpcallowip
 - `6b407e4` -datadir is now allowed in config files
 - `bdd5b58` Add option `-sysperms` to disable 077 umask (create new files with system default umask)
-- `cbe39a3` Add "bitcoin-tx" command line utility and supporting modules
+- `cbe39a3` Add "coordinate-tx" command line utility and supporting modules
 - `dbca89b` Trigger -alertnotify if network is upgrading without you
 - `ad96e7c` Make -reindex cope with out-of-order blocks
 - `16d5194` Skip reindexed blocks individually
@@ -492,7 +492,7 @@ Build system:
 - `9ce0774` build: Fix windows configure when using --with-qt-libdir
 - `ea96475` build: Add mention of --disable-wallet to bdb48 error messages
 - `1dec09b` depends: add shared dependency builder
-- `c101c76` build: Add --with-utils (coordinate-cli and bitcoin-tx, default=yes). Help string consistency tweaks. Target sanity check fix
+- `c101c76` build: Add --with-utils (coordinate-cli and coordinate-tx, default=yes). Help string consistency tweaks. Target sanity check fix
 - `e432a5f` build: add option for reducing exports (v2)
 - `6134b43` Fixing condition 'sabotaging' MSVC build
 - `af0bd5e` osx: fix signing to make Gatekeeper happy (again)
@@ -539,7 +539,7 @@ GUI:
 - `7007402` Implement SI-style (thin space) thoudands separator
 - `91cce17` Use fixed-point arithmetic in amount spinbox
 - `bdba2dd` Remove an obscure option no-one cares about
-- `bd0aa10` Replace the temporary file hack currently used to change Bitcoin-Qt's dock icon (OS X) with a buffer-based solution
+- `bd0aa10` Replace the temporary file hack currently used to change Coordinate-Qt's dock icon (OS X) with a buffer-based solution
 - `94e1b9e` Re-work overviewpage UI
 - `8bfdc9a` Better looking trayicon
 - `b197bf3` disable tray interactions when client model set to 0
@@ -585,8 +585,8 @@ Tests:
 - `4cac5db` script tests: value with trailing 0x00 is true
 - `89101c6` script test: test case for 5-byte bools
 - `d2d9dc0` script tests: add tests for CHECKMULTISIG limits
-- `d789386` Add "it works" test for bitcoin-tx
-- `df4d61e` Add bitcoin-tx tests
+- `d789386` Add "it works" test for coordinate-tx
+- `df4d61e` Add coordinate-tx tests
 - `aa41ac2` Test IsPushOnly() with invalid push
 - `6022b5d` Make `script_{valid,invalid}.json` validation flags configurable
 - `8138cbe` Add automatic script test generation, and actual checksig tests

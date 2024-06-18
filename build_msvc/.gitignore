@@ -14,9 +14,9 @@ libcoordinate_cli/libcoordinate_cli.vcxproj
 libbitcoin_common/libbitcoin_common.vcxproj
 libbitcoin_crypto/libbitcoin_crypto.vcxproj
 libbitcoin_node/libbitcoin_node.vcxproj
-libbitcoin_util/libbitcoin_util.vcxproj
-libbitcoin_wallet_tool/libbitcoin_wallet_tool.vcxproj
-libbitcoin_wallet/libbitcoin_wallet.vcxproj
+libcoordinate_util/libcoordinate_util.vcxproj
+libcoordinate_wallet_tool/libcoordinate_wallet_tool.vcxproj
+libcoordinate_wallet/libcoordinate_wallet.vcxproj
 libbitcoin_zmq/libbitcoin_zmq.vcxproj
 bench_bitcoin/bench_bitcoin.vcxproj
 libtest_util/libtest_util.vcxproj

@@ -22,7 +22,7 @@ How to Upgrade
 
 If you are running an older version, shut it down. Wait until it has completely
 shut down (which might take a few minutes for older versions), then run the 
-installer (on Windows) or just copy over `/Applications/Bitcoin-Qt` (on Mac)
+installer (on Windows) or just copy over `/Applications/Coordinate-Qt` (on Mac)
 or `coordinated`/`coordinate-qt` (on Linux).
 
 The first time you run version 0.15.0 or higher, your chainstate database will
@@ -202,7 +202,7 @@ Low-level RPC changes
 - #11399 `a825d4a` Fix bip68-sequence rpc test (jl2012)
 - #11150 `847c75e` Add getmininginfo test (mess110)
 - #11407 `806c78f` add functional test for mempoolreplacement command line arg (instagibbs)
-- #11433 `e169349` Restore bitcoin-util-test py2 compatibility (MarcoFalke)
+- #11433 `e169349` Restore coordinate-util-test py2 compatibility (MarcoFalke)
 - #11308 `2e1ac70` zapwallettxes: Wait up to 3s for mempool reload (MarcoFalke)
 - #10798 `716066d` test coordinate-cli (jnewbery)
 - #11443 `019c492` Allow "make cov" out-of-tree; Fix rpc mapping check (MarcoFalke)
@@ -232,7 +232,7 @@ Low-level RPC changes
 - #11310 `b6468d3` Test listwallets RPC (mess110)
 
 ### Miscellaneous
-- #11377 `75997c3` Disallow uncompressed pubkeys in bitcoin-tx [multisig] output adds (TheBlueMatt)
+- #11377 `75997c3` Disallow uncompressed pubkeys in coordinate-tx [multisig] output adds (TheBlueMatt)
 - #11437 `dea3b87` [Docs] Update Windows build instructions for using WSL and Ubuntu 17.04 (fanquake)
 - #11318 `8b61aee` Put back inadvertently removed copyright notices (gmaxwell)
 - #11442 `cf18f42` [Docs] Update OpenBSD Build Instructions for OpenBSD 6.2 (fanquake)

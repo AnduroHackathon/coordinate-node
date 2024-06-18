@@ -10,9 +10,9 @@ import tempfile
 BINARIES = [
 'src/coordinated',
 'src/coordinate-cli',
-'src/bitcoin-tx',
-'src/bitcoin-wallet',
-'src/bitcoin-util',
+'src/coordinate-tx',
+'src/coordinate-wallet',
+'src/coordinate-util',
 'src/qt/coordinate-qt',
 ]
 

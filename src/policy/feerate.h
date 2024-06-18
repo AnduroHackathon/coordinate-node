@@ -51,7 +51,7 @@ public:
      * param@[in]   num_bytes   The vsize of a transaction, in vbytes
      */
     CFeeRate(const CAmount& nFeePaid, uint32_t num_bytes);
-
+    CAmount GetPreConfFee(uint32_t num_bytes, const CAmount& preconfMinFee) const;
     /**
      * Return the fee in satoshis for the given vsize in vbytes.
      * If the calculated fee would have fractional satoshis, then the
@@ -62,7 +62,7 @@ public:
     /**
      * Return the fee in satoshis for a vsize of 1000 vbytes
      */
-    CAmount GetFeePerK() const { return GetFee(1000); }
+    CAmount GetFeePerK() const { return nSatoshisPerK; }
     friend bool operator<(const CFeeRate& a, const CFeeRate& b) { return a.nSatoshisPerK < b.nSatoshisPerK; }
     friend bool operator>(const CFeeRate& a, const CFeeRate& b) { return a.nSatoshisPerK > b.nSatoshisPerK; }
     friend bool operator==(const CFeeRate& a, const CFeeRate& b) { return a.nSatoshisPerK == b.nSatoshisPerK; }

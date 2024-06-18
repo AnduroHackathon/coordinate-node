@@ -20,10 +20,10 @@ Fixed an obscure bug that could cause the bitcoin process to get
 stuck on an invalid block-chain, if the invalid chain was
 hundreds of blocks long.
 
-Bitcoin-Qt no longer automatically selects the first address
+Coordinate-Qt no longer automatically selects the first address
 in the address book (Issue #1384).
 
-Fixed minimize-to-dock behavior of Bitcoin-Qt on the Mac.
+Fixed minimize-to-dock behavior of Coordinate-Qt on the Mac.
 
 Added a block checkpoint at block 185,333 to speed up initial
 blockchain download.

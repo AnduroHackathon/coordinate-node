@@ -4,29 +4,30 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <node/miner.h>
-#include <univalue.h>
-#include <rpc/util.h>
+
 #include <chain.h>
 #include <chainparams.h>
 #include <coins.h>
+#include <common/args.h>
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
 #include <consensus/merkle.h>
 #include <consensus/tx_verify.h>
 #include <consensus/validation.h>
 #include <deploymentstatus.h>
+#include <logging.h>
 #include <policy/feerate.h>
 #include <policy/policy.h>
 #include <pow.h>
 #include <primitives/transaction.h>
 #include <timedata.h>
 #include <util/moneystr.h>
-#include <util/system.h>
 #include <validation.h>
-#include <anduro_deposit.h>
-
+#include <util/strencodings.h>
 #include <algorithm>
 #include <utility>
+#include <anduro_deposit.h>
+#include <coordinate/coordinate_preconf.h>
 
 namespace node {
 int64_t UpdateTime(CBlockHeader* pblock, const Consensus::Params& consensusParams, const CBlockIndex* pindexPrev)
@@ -58,34 +59,27 @@ void RegenerateCommitments(CBlock& block, ChainstateManager& chainman)
     block.hashMerkleRoot = BlockMerkleRoot(block);
 }
 
-BlockAssembler::Options::Options()
+static BlockAssembler::Options ClampOptions(BlockAssembler::Options options)
 {
-    blockMinFeeRate = CFeeRate(DEFAULT_BLOCK_MIN_TX_FEE);
-    nBlockMaxWeight = DEFAULT_BLOCK_MAX_WEIGHT;
-    test_block_validity = true;
+    // Limit weight to between 4K and DEFAULT_BLOCK_MAX_WEIGHT for sanity:
+    options.nBlockMaxWeight = std::clamp<size_t>(options.nBlockMaxWeight, 4000, DEFAULT_BLOCK_MAX_WEIGHT);
+    return options;
 }
 
 BlockAssembler::BlockAssembler(Chainstate& chainstate, const CTxMemPool* mempool, const Options& options)
-    : test_block_validity{options.test_block_validity},
-      chainparams{chainstate.m_chainman.GetParams()},
-      m_mempool(mempool),
-      m_chainstate(chainstate)
+    : chainparams{chainstate.m_chainman.GetParams()},
+      m_mempool{mempool},
+      m_chainstate{chainstate},
+      m_options{ClampOptions(options)}
 {
-    blockMinFeeRate = options.blockMinFeeRate;
-    // Limit weight to between 4K and MAX_BLOCK_WEIGHT-4K for sanity:
-    nBlockMaxWeight = std::max<size_t>(4000, std::min<size_t>(MAX_BLOCK_WEIGHT - 4000, options.nBlockMaxWeight));
 }
 
-void ApplyArgsManOptions(const ArgsManager& gArgs, BlockAssembler::Options& options)
+void ApplyArgsManOptions(const ArgsManager& args, BlockAssembler::Options& options)
 {
     // Block resource limits
-    // If -blockmaxweight is not given, limit to DEFAULT_BLOCK_MAX_WEIGHT
-    options.nBlockMaxWeight = gArgs.GetIntArg("-blockmaxweight", DEFAULT_BLOCK_MAX_WEIGHT);
-    if (gArgs.IsArgSet("-blockmintxfee")) {
-        std::optional<CAmount> parsed = ParseMoney(gArgs.GetArg("-blockmintxfee", ""));
-        options.blockMinFeeRate = CFeeRate{parsed.value_or(DEFAULT_BLOCK_MIN_TX_FEE)};
-    } else {
-        options.blockMinFeeRate = CFeeRate{DEFAULT_BLOCK_MIN_TX_FEE};
+    options.nBlockMaxWeight = args.GetIntArg("-blockmaxweight", options.nBlockMaxWeight);
+    if (const auto blockmintxfee{args.GetArg("-blockmintxfee")}) {
+        if (const auto parsed{ParseMoney(*blockmintxfee)}) options.blockMinFeeRate = CFeeRate{*parsed};
     }
 }
 static BlockAssembler::Options ConfiguredOptions()
@@ -136,10 +130,9 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
 
     const int32_t nChainId = chainparams.GetConsensus ().nAuxpowChainId;
     const int32_t nVersion = 4;
-    pblock->SetBaseVersion(4, nChainId);
-    // FIXME: Active version bits after the always-auxpow fork!
-    //pblock->nVersion = m_chainstate.m_chainman.m_versionbitscache.ComputeBlockVersion(pindexPrev, chainparams.GetConsensus());
+    pblock->SetBaseVersion(nVersion, nChainId);
 
+    //  pblock->nVersion = m_chainstate.m_chainman.m_versionbitscache.ComputeBlockVersion(pindexPrev, chainparams.GetConsensus());
     // -regtest only: allow overriding block.nVersion with
     // -blockversion=N to test forking scenarios
     if (chainparams.MineBlocksOnDemand()) {
@@ -160,71 +153,95 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
 
     m_last_block_num_txs = nBlockTx;
     m_last_block_weight = nBlockWeight;
-    
-    int resize = 1;
-    // get next block presigned data
-    std::vector<AnduroTxOut> pending_deposits = listPendingDepositTransaction(nHeight);
 
-    // prevent to get block template if not presigned signature available for next block
-    if(pending_deposits.size() == 0) {
-        LogPrintf("peg queue unavailable\n");
-        return nullptr;
+    // increasing coinbase size for refunds
+    CAmount minerFee = 0;
+    CAmount totalPreconfFee = 0;
+    CAmount federationFee = 0;
+    if(nHeight > 3) {
+        minerFee = getFeeForBlock(m_chainstate.m_chainman, nHeight);
+        totalPreconfFee = getPreconfFeeForBlock(m_chainstate.m_chainman, nHeight);
+        if(totalPreconfFee > 0) {
+            federationFee = std::ceil(totalPreconfFee * 0.20);
+            minerFee = minerFee + (totalPreconfFee - federationFee);
+        }
+    }
+    
+    pblock->invalidTx = getInvalidTx(m_chainstate.m_chainman);
+    pblock->reconsiliationBlock = getReconsiledBlock(m_chainstate.m_chainman);
+    std::vector<SignedBlock> nextPreconfs = getFinalizedSignedBlocks();
+    for (size_t i = 0; i < nextPreconfs.size(); i++) {
+        pblock->preconfBlock.push_back(nextPreconfs[i]);
     }
 
-    // increase transaction out size based on available pegin 
-    if(isSpecialTxoutValid(pending_deposits,m_chainstate.m_chainman)) {
-        int tIndex = 1;
-        for (const AnduroTxOut& tx_out : pending_deposits) {
-            if (tx_out.nValue > 0) {
-                resize = resize + 1;
-                tIndex = tIndex + 1;
+    int resize = 2;
+    CMutableTransaction coinbaseTx;
+    if(Params().GetChainType() != ChainType::REGTEST) {
+        // get next block presigned data
+        std::vector<AnduroPreCommitment> pending_commitments = listPendingCommitment(nHeight);
+        LogPrintf("commitment queue count %i\n", pending_commitments.size());
+        // prevent to get block template if not presigned signature available for next block
+        if(nHeight > 2) {
+            if(pending_commitments.size() == 0) {
+                LogPrintf("commitment queue unavailable\n");
+                return nullptr;
+            }
+
+            // increase transaction out size based on available pegin 
+            if(!isPreCommitmentValid(pending_commitments,m_chainstate.m_chainman)) {
+                LogPrintf("anduro commitment invalid \n");
+                return nullptr;
             }
         }
-    } else {
-        LogPrintf("special txsetout invalid \n");
-        return nullptr;
-    }
-    // increase transaction out size by one for include witness
-    resize = resize + 1;
-    
 
-    if(pending_deposits.size() == 1 &&  pending_deposits[0].nValue == 0) {
-        // if no new pegin included, then existing anduro key added in next block 
-        pblock->currentKeys = getCurrentKeys(m_chainstate.m_chainman);
-        pblock->nextIndex = getNextIndex(m_chainstate.m_chainman);
-    } else {
-        // if new pegin included, then existing anduro key replaced in next block 
-        AnduroTxOut& tx_out = pending_deposits[0];
-        pblock->currentKeys = tx_out.currentKeys;
-        pblock->nextIndex = tx_out.nextIndex;
-    }
+        // increase transaction out size by one for include witness
+        resize = resize + 1;
 
-    // Create coinbase transaction.
-    CMutableTransaction coinbaseTx;
-    coinbaseTx.vin.resize(1);
-    coinbaseTx.vin[0].prevout.SetNull();
-    coinbaseTx.vout.resize(resize);
-    coinbaseTx.vout[0].scriptPubKey = scriptPubKeyIn;
-    // coinbaseTx.vout[0].nValue = nFees + GetBlockSubsidy(nHeight, chainparams.GetConsensus());
-    // disable block subsidy. only fee will be given as reward
-    coinbaseTx.vout[0].nValue = nFees;
+        if(nHeight > 2) {
+            // if new commitment included, then existing anduro key replaced in next block 
+            AnduroPreCommitment& commtiment = pending_commitments[0];
+            pblock->currentKeys = commtiment.nextKeys;
+            pblock->currentIndex = commtiment.nextIndex;
 
-    int oIncr = 1;
-    if(pending_deposits.size() == 1 &&  pending_deposits[0].nValue == 0) {
-
-    } else {
-        // include new pegin in transaction output
-        for (const AnduroTxOut& tx_out : pending_deposits) {
-            coinbaseTx.vout[oIncr].nValue = tx_out.nValue;
-            coinbaseTx.vout[oIncr].scriptPubKey =tx_out.scriptPubKey;
-            oIncr = oIncr + 1;
+        } else {
+            pblock->currentKeys = getCurrentKeys(m_chainstate.m_chainman);
+            pblock->currentIndex = getCurrentIndex(m_chainstate.m_chainman);
         }
-    }
-     // including anduro signature information
-    std::vector<unsigned char> data = ParseHex(pending_deposits[0].witness);
-    CTxOut out(0, CScript() << OP_RETURN << data);
-    coinbaseTx.vout[oIncr] = out;
 
+        coinbaseTx.vin.resize(1);
+        coinbaseTx.vin[0].prevout.SetNull();
+        coinbaseTx.vout.resize(resize);
+        coinbaseTx.vout[0].scriptPubKey = scriptPubKeyIn;
+        coinbaseTx.vout[0].nValue = GetBlockSubsidy(nHeight, chainparams.GetConsensus());
+
+        // miner fee for preconf
+        int oIncr = 1;
+        coinbaseTx.vout[oIncr].scriptPubKey = getMinerScript(m_chainstate.m_chainman, nHeight);
+        coinbaseTx.vout[oIncr].nValue = minerFee;
+    
+        
+        // including anduro signature information
+        std::string preCommitmentWitness = "";
+        if(nHeight > 2) {
+            preCommitmentWitness = pending_commitments[0].witness;
+        }
+        oIncr = oIncr + 1;
+        std::vector<unsigned char> data = ParseHex(preCommitmentWitness);
+        CTxOut out(0, CScript() << OP_RETURN << data);
+        coinbaseTx.vout[oIncr] = out;
+    } else {
+        pblock->currentKeys = getCurrentKeys(m_chainstate.m_chainman);
+        pblock->currentIndex = getCurrentIndex(m_chainstate.m_chainman);
+        coinbaseTx.vin.resize(1);
+        coinbaseTx.vin[0].prevout.SetNull();
+        coinbaseTx.vout.resize(resize);
+        coinbaseTx.vout[0].scriptPubKey = scriptPubKeyIn;
+        coinbaseTx.vout[0].nValue = GetBlockSubsidy(nHeight, chainparams.GetConsensus());
+        int oIncr = 1;
+        // miner fee for preconf
+        coinbaseTx.vout[oIncr].scriptPubKey = getMinerScript(m_chainstate.m_chainman, nHeight);
+        coinbaseTx.vout[oIncr].nValue = minerFee;
+    }
     coinbaseTx.vin[0].scriptSig = CScript() << nHeight << OP_0;
     pblock->vtx[0] = MakeTransactionRef(std::move(coinbaseTx));
     pblocktemplate->vchCoinbaseCommitment = m_chainstate.m_chainman.GenerateCoinbaseCommitment(*pblock, pindexPrev);
@@ -240,7 +257,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     pblocktemplate->vTxSigOpsCost[0] = WITNESS_SCALE_FACTOR * GetLegacySigOpCount(*pblock->vtx[0]);
 
     BlockValidationState state;
-    if (test_block_validity && !TestBlockValidity(state, chainparams, m_chainstate, *pblock, pindexPrev,
+    if (m_options.test_block_validity && !TestBlockValidity(state, chainparams, m_chainstate, *pblock, pindexPrev,
                                                   GetAdjustedTime, /*fCheckPOW=*/false, /*fCheckMerkleRoot=*/false)) {
         throw std::runtime_error(strprintf("%s: TestBlockValidity failed: %s", __func__, state.ToString()));
     }
@@ -269,7 +286,7 @@ void BlockAssembler::onlyUnconfirmed(CTxMemPool::setEntries& testSet)
 bool BlockAssembler::TestPackage(uint64_t packageSize, int64_t packageSigOpsCost) const
 {
     // TODO: switch to weight-based accounting for packages instead of vsize-based accounting.
-    if (nBlockWeight + WITNESS_SCALE_FACTOR * packageSize >= nBlockMaxWeight) {
+    if (nBlockWeight + WITNESS_SCALE_FACTOR * packageSize >= m_options.nBlockMaxWeight) {
         return false;
     }
     if (nBlockSigOpsCost + packageSigOpsCost >= MAX_BLOCK_SIGOPS_COST) {
@@ -379,7 +396,6 @@ void BlockAssembler::addPackageTxs(const CTxMemPool& mempool, int& nPackagesSele
     const int64_t MAX_CONSECUTIVE_FAILURES = 1000;
     int64_t nConsecutiveFailed = 0;
 
-
     while (mi != mempool.mapTx.get<ancestor_score>().end() || !mapModifiedTx.empty()) {
         // First try to find a new transaction in mapTx to evaluate.
         //
@@ -393,7 +409,7 @@ void BlockAssembler::addPackageTxs(const CTxMemPool& mempool, int& nPackagesSele
         // failedTx and avoid re-evaluation, since the re-evaluation would be using
         // cached size/sigops/fee values that are not actually correct.
         /** Return true if given transaction from mapTx has already been evaluated,
-         * or if the transaction's cached data in mapTx is incorrect. */    
+         * or if the transaction's cached data in mapTx is incorrect. */
         if (mi != mempool.mapTx.get<ancestor_score>().end()) {
             auto it = mempool.mapTx.project<0>(mi);
             assert(it != mempool.mapTx.end());
@@ -402,7 +418,7 @@ void BlockAssembler::addPackageTxs(const CTxMemPool& mempool, int& nPackagesSele
                 continue;
             }
         }
-        LogPrintf("failedTx %i \n",failedTx.size());
+
         // Now that mi is not stale, determine which transaction to evaluate:
         // the next entry from mapTx, or the best from mapModifiedTx?
         bool fUsingModified = false;
@@ -441,13 +457,13 @@ void BlockAssembler::addPackageTxs(const CTxMemPool& mempool, int& nPackagesSele
             packageFees = modit->nModFeesWithAncestors;
             packageSigOpsCost = modit->nSigOpCostWithAncestors;
         }
-        if (packageFees < blockMinFeeRate.GetFee(packageSize)) {
+
+        if (packageFees < m_options.blockMinFeeRate.GetFee(packageSize)) {
             // Everything else we might consider has a lower fee rate
             return;
         }
 
         if (!TestPackage(packageSize, packageSigOpsCost)) {
-
             if (fUsingModified) {
                 // Since we always look at the best entry in mapModifiedTx,
                 // we must erase failed entries so that we can consider the
@@ -457,8 +473,9 @@ void BlockAssembler::addPackageTxs(const CTxMemPool& mempool, int& nPackagesSele
             }
 
             ++nConsecutiveFailed;
+
             if (nConsecutiveFailed > MAX_CONSECUTIVE_FAILURES && nBlockWeight >
-                    nBlockMaxWeight - 4000) {
+                    m_options.nBlockMaxWeight - 4000) {
                 // Give up if we're close to full and haven't succeeded in a while
                 break;
             }
@@ -466,6 +483,7 @@ void BlockAssembler::addPackageTxs(const CTxMemPool& mempool, int& nPackagesSele
         }
 
         auto ancestors{mempool.AssumeCalculateMemPoolAncestors(__func__, *iter, CTxMemPool::Limits::NoLimits(), /*fSearchForParents=*/false)};
+
         onlyUnconfirmed(ancestors);
         ancestors.insert(iter);
 
@@ -478,14 +496,12 @@ void BlockAssembler::addPackageTxs(const CTxMemPool& mempool, int& nPackagesSele
             continue;
         }
 
-
         // This transaction will make it in; reset the failed counter.
         nConsecutiveFailed = 0;
 
         // Package can be added. Sort the entries in a valid order.
         std::vector<CTxMemPool::txiter> sortedEntries;
         SortForBlock(ancestors, sortedEntries);
-
 
         for (size_t i = 0; i < sortedEntries.size(); ++i) {
             AddToBlock(sortedEntries[i]);

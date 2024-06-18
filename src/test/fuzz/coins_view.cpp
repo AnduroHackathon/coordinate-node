@@ -3,7 +3,6 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <chainparams.h>
-#include <chainparamsbase.h>
 #include <coins.h>
 #include <consensus/amount.h>
 #include <consensus/tx_check.h>
@@ -42,11 +41,11 @@ void initialize_coins_view()
     g_setup = testing_setup.get();
 }
 
-FUZZ_TARGET_INIT(coins_view, initialize_coins_view)
+FUZZ_TARGET(coins_view, .init = initialize_coins_view)
 {
     FuzzedDataProvider fuzzed_data_provider{buffer.data(), buffer.size()};
     CCoinsView backend_coins_view;
-    CCoinsViewCache coins_view_cache{&backend_coins_view};
+    CCoinsViewCache coins_view_cache{&backend_coins_view, /*deterministic=*/true};
     COutPoint random_out_point;
     Coin random_coin;
     CMutableTransaction random_mutable_transaction;
@@ -84,8 +83,9 @@ FUZZ_TARGET_INIT(coins_view, initialize_coins_view)
                 Coin move_to;
                 bool fBitAsset = false;
                 bool fBitAssetControl = false;
+                bool isPreconf = false;
                 uint32_t nAssetID = 0;
-                (void)coins_view_cache.SpendCoin(random_out_point, fBitAsset, fBitAssetControl, nAssetID, fuzzed_data_provider.ConsumeBool() ? &move_to : nullptr);
+                (void)coins_view_cache.SpendCoin(random_out_point, fBitAsset, fBitAssetControl, isPreconf, nAssetID, fuzzed_data_provider.ConsumeBool() ? &move_to : nullptr);
             },
             [&] {
                 coins_view_cache.Uncache(random_out_point);
@@ -118,7 +118,8 @@ FUZZ_TARGET_INIT(coins_view, initialize_coins_view)
                 random_mutable_transaction = *opt_mutable_transaction;
             },
             [&] {
-                CCoinsMap coins_map;
+                CCoinsMapMemoryResource resource;
+                CCoinsMap coins_map{0, SaltedOutpointHasher{/*deterministic=*/true}, CCoinsMap::key_equal{}, &resource};
                 LIMITED_WHILE(fuzzed_data_provider.ConsumeBool(), 10000) {
                     CCoinsCacheEntry coins_cache_entry;
                     coins_cache_entry.flags = fuzzed_data_provider.ConsumeIntegral<unsigned char>();
@@ -158,14 +159,16 @@ FUZZ_TARGET_INIT(coins_view, initialize_coins_view)
         }
         assert((exists_using_access_coin && exists_using_have_coin_in_cache && exists_using_have_coin && exists_using_get_coin) ||
                (!exists_using_access_coin && !exists_using_have_coin_in_cache && !exists_using_have_coin && !exists_using_get_coin));
+        // If HaveCoin on the backend is true, it must also be on the cache if the coin wasn't spent.
         const bool exists_using_have_coin_in_backend = backend_coins_view.HaveCoin(random_out_point);
-        if (exists_using_have_coin_in_backend) {
+        if (!coin_using_access_coin.IsSpent() && exists_using_have_coin_in_backend) {
             assert(exists_using_have_coin);
         }
         Coin coin_using_backend_get_coin;
         if (backend_coins_view.GetCoin(random_out_point, coin_using_backend_get_coin)) {
             assert(exists_using_have_coin_in_backend);
-            assert(coin_using_get_coin == coin_using_backend_get_coin);
+            // Note we can't assert that `coin_using_get_coin == coin_using_backend_get_coin` because the coin in
+            // the cache may have been modified but not yet flushed.
         } else {
             assert(!exists_using_have_coin_in_backend);
         }
@@ -202,7 +205,7 @@ FUZZ_TARGET_INIT(coins_view, initialize_coins_view)
                 const CTransaction transaction{random_mutable_transaction};
                 bool is_spent = false;
                 for (const CTxOut& tx_out : transaction.vout) {
-                    if (Coin{tx_out, 0, transaction.IsCoinBase(), false, false, 0}.IsSpent()) {
+                    if (Coin{tx_out, 0, transaction.IsCoinBase(), false, false, false, 0}.IsSpent()) {
                         is_spent = true;
                     }
                 }
@@ -217,7 +220,8 @@ FUZZ_TARGET_INIT(coins_view, initialize_coins_view)
                 try {
                     CAmount amountAssetIn = CAmount(0);
                     int nControlN = -1;
-                    AddCoins(coins_view_cache, transaction, height, 0, amountAssetIn, nControlN, possible_overwrite);
+                    CAmount preconfRefund = CAmount(0);
+                    AddCoins(coins_view_cache, transaction, height, preconfRefund, amountAssetIn, nControlN, possible_overwrite);
                     expected_code_path = true;
                 } catch (const std::logic_error& e) {
                     if (e.what() == std::string{"Attempted to overwrite an unspent coin (when possible_overwrite is false)"}) {

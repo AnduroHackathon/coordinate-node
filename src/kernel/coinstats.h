@@ -6,6 +6,7 @@
 #define BITCOIN_KERNEL_COINSTATS_H
 
 #include <consensus/amount.h>
+#include <crypto/muhash.h>
 #include <streams.h>
 #include <uint256.h>
 
@@ -38,9 +39,7 @@ struct CCoinsStats {
     uint64_t nDiskSize{0};
     //! The total amount, or nullopt if an overflow occurred calculating it
     std::optional<CAmount> total_amount{0};
-
     std::optional<CAmount> total_assets{0};
-
     //! The number of coins contained.
     uint64_t coins_count{0};
 
@@ -74,7 +73,8 @@ struct CCoinsStats {
 
 uint64_t GetBogoSize(const CScript& script_pub_key);
 
-DataStream TxOutSer(const COutPoint& outpoint, const Coin& coin);
+void ApplyCoinHash(MuHash3072& muhash, const COutPoint& outpoint, const Coin& coin);
+void RemoveCoinHash(MuHash3072& muhash, const COutPoint& outpoint, const Coin& coin);
 
 std::optional<CCoinsStats> ComputeUTXOStats(CoinStatsHashType hash_type, CCoinsView* view, node::BlockManager& blockman, const std::function<void()>& interruption_point = {});
 } // namespace kernel

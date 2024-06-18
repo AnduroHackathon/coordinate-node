@@ -29,8 +29,13 @@ class RPCGenerateTest(BitcoinTestFramework):
         node = self.nodes[0]
         miniwallet = MiniWallet(node)
 
-        self.log.info('Generate an empty block to address')
+        self.log.info('Mine an empty block to address and return the hex')
         address = miniwallet.get_address()
+        generated_block = self.generateblock(node, output=address, transactions=[], submit=False)
+        node.submitblock(hexdata=generated_block['hex'])
+        assert_equal(generated_block['hash'], node.getbestblockhash())
+
+        self.log.info('Generate an empty block to address')
         hash = self.generateblock(node, output=address, transactions=[])['hash']
         block = node.getblock(blockhash=hash, verbose=2)
         assert_equal(len(block['tx']), 1)
@@ -44,7 +49,7 @@ class RPCGenerateTest(BitcoinTestFramework):
 
         self.log.info('Generate an empty block to a combo descriptor with compressed pubkey')
         combo_key = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798'
-        combo_address = 'ccrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080'
+        combo_address = 'bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080'
         hash = self.generateblock(node, 'combo(' + combo_key + ')', [])['hash']
         block = node.getblock(hash, 2)
         assert_equal(len(block['tx']), 1)

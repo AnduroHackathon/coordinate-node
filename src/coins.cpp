@@ -32,7 +32,10 @@ bool CCoinsViewBacked::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock,
 std::unique_ptr<CCoinsViewCursor> CCoinsViewBacked::Cursor() const { return base->Cursor(); }
 size_t CCoinsViewBacked::EstimateSize() const { return base->EstimateSize(); }
 
-CCoinsViewCache::CCoinsViewCache(CCoinsView *baseIn) : CCoinsViewBacked(baseIn), cachedCoinsUsage(0) {}
+CCoinsViewCache::CCoinsViewCache(CCoinsView* baseIn, bool deterministic) :
+    CCoinsViewBacked(baseIn), m_deterministic(deterministic),
+    cacheCoins(0, SaltedOutpointHasher(/*deterministic=*/deterministic), CCoinsMap::key_equal{}, &m_cache_coins_memory_resource)
+{}
 
 size_t CCoinsViewCache::DynamicMemoryUsage() const {
     return memusage::DynamicUsage(cacheCoins) + cachedCoinsUsage;
@@ -76,7 +79,11 @@ void CCoinsViewCache::AddCoin(const COutPoint &outpoint, Coin&& coin, bool possi
     }
     if (!possible_overwrite) {
         if (!it->second.coin.IsSpent()) {
-            throw std::logic_error("Attempted to overwrite an unspent coin (when possible_overwrite is false)");
+            if(coin.isPreconf) {
+                return;
+            } else {
+                throw std::logic_error("Attempted to overwrite an unspent coin (when possible_overwrite is false)");
+            }
         }
         // If the coin exists in this cache as a spent coin and is DIRTY, then
         // its spentness hasn't been flushed to the parent cache. We're
@@ -112,11 +119,11 @@ void CCoinsViewCache::EmplaceCoinInternalDANGER(COutPoint&& outpoint, Coin&& coi
         std::forward_as_tuple(std::move(coin), CCoinsCacheEntry::DIRTY));
 }
 
-void AddCoins(CCoinsViewCache& cache, const CTransaction &tx, int nHeight, uint32_t nAssetID, const CAmount amountAssetIn, int nControlN, uint32_t nNewAssetID, bool check_for_overwrite) {
+void AddCoins(CCoinsViewCache& cache, const CTransaction &tx, int nHeight, const CAmount preconfRefund, uint32_t nAssetID, const CAmount amountAssetIn, int nControlN, uint32_t nNewAssetID, bool check_for_overwrite) {
     bool fCoinbase = tx.IsCoinBase();
     const uint256& txid = tx.GetHash();
-
     if (amountAssetIn > 0) {
+            
         // One of the input coins is a BitAsset, coins adding up to the asset
         // input amount will be marked as BitAssets
 
@@ -127,7 +134,7 @@ void AddCoins(CCoinsViewCache& cache, const CTransaction &tx, int nHeight, uint3
             bool fAsset = amountAssetIn > amountAssetOut;
             bool fControl = nControlN >= 0 && (int)i == nControlN;
             uint32_t nID = nNewAssetID ? nNewAssetID : nAssetID;
-            cache.AddCoin(COutPoint(txid, i), Coin(tx.vout[i], nHeight, fCoinbase, fAsset, fControl, fAsset ? nID : 0), overwrite);
+            cache.AddCoin(COutPoint(txid, i), Coin(tx.vout[i], nHeight, fCoinbase, fAsset, fControl, tx.nVersion == TRANSACTION_PRECONF_VERSION ? true : false, fAsset ? nID : 0), overwrite);
             if (fAsset)
                 amountAssetOut += tx.vout[i].nValue;
         }
@@ -138,23 +145,29 @@ void AddCoins(CCoinsViewCache& cache, const CTransaction &tx, int nHeight, uint3
         // 0: controller output
         // 1: genesis output
         // The rest are normal outputs
-        
         bool fNewAsset = tx.nVersion == TRANSACTION_COORDINATE_ASSET_CREATE_VERSION;
         for (size_t i = 0; i < tx.vout.size(); ++i) {
             bool fAsset = fNewAsset && i < 2;
             bool fControl = fNewAsset && i == 0;
             uint32_t nID = nNewAssetID ? nNewAssetID : nAssetID;
             bool overwrite = check_for_overwrite ? cache.HaveCoin(COutPoint(txid, i)) : fCoinbase;
-            cache.AddCoin(COutPoint(txid, i), Coin(tx.vout[i], nHeight, fCoinbase, fAsset, fControl, fAsset ? nID : 0), overwrite);
+            if(tx.nVersion == TRANSACTION_PRECONF_VERSION && i == 0 && !tx.IsCoinBase()) {
+                CTxOut refund(preconfRefund, tx.vout[i].scriptPubKey);
+                cache.AddCoin(COutPoint(txid, i), Coin(refund, nHeight, fCoinbase, fAsset, fControl, tx.nVersion == TRANSACTION_PRECONF_VERSION ? true : false, fAsset ? nID : 0), overwrite);
+            } else {
+                cache.AddCoin(COutPoint(txid, i), Coin(tx.vout[i], nHeight, fCoinbase, fAsset, fControl, tx.nVersion == TRANSACTION_PRECONF_VERSION ? true : false, fAsset ? nID : 0), overwrite);
+            }
         }
     }
 }
 
-bool CCoinsViewCache::SpendCoin(const COutPoint &outpoint, bool& fBitAsset, bool& fBitAssetControl, uint32_t& nAssetID, Coin* moveout) {
+
+bool CCoinsViewCache::SpendCoin(const COutPoint &outpoint, bool& fBitAsset, bool& fBitAssetControl, bool& isPreconf, uint32_t& nAssetID, Coin* moveout) {
     CCoinsMap::iterator it = FetchCoin(outpoint);
     if (it == cacheCoins.end()) return false;
     fBitAsset = it->second.coin.fBitAsset;
     fBitAssetControl = it->second.coin.fBitAssetControl;
+    isPreconf = it->second.coin.isPreconf;
     nAssetID = it->second.coin.nAssetID;
     cachedCoinsUsage -= it->second.coin.DynamicMemoryUsage();
     TRACE5(utxocache, spent,
@@ -294,9 +307,12 @@ bool CCoinsViewCache::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlockIn
 
 bool CCoinsViewCache::Flush() {
     bool fOk = base->BatchWrite(cacheCoins, hashBlock, /*erase=*/true);
-    if (fOk && !cacheCoins.empty()) {
-        /* BatchWrite must erase all cacheCoins elements when erase=true. */
-        throw std::logic_error("Not all cached coins were erased");
+    if (fOk) {
+        if (!cacheCoins.empty()) {
+            /* BatchWrite must erase all cacheCoins elements when erase=true. */
+            throw std::logic_error("Not all cached coins were erased");
+        }
+        ReallocateCache();
     }
     cachedCoinsUsage = 0;
     return fOk;
@@ -355,7 +371,26 @@ void CCoinsViewCache::ReallocateCache()
     // Cache should be empty when we're calling this.
     assert(cacheCoins.size() == 0);
     cacheCoins.~CCoinsMap();
-    ::new (&cacheCoins) CCoinsMap();
+    m_cache_coins_memory_resource.~CCoinsMapMemoryResource();
+    ::new (&m_cache_coins_memory_resource) CCoinsMapMemoryResource{};
+    ::new (&cacheCoins) CCoinsMap{0, SaltedOutpointHasher{/*deterministic=*/m_deterministic}, CCoinsMap::key_equal{}, &m_cache_coins_memory_resource};
+}
+
+void CCoinsViewCache::SanityCheck() const
+{
+    size_t recomputed_usage = 0;
+    for (const auto& [_, entry] : cacheCoins) {
+        unsigned attr = 0;
+        if (entry.flags & CCoinsCacheEntry::DIRTY) attr |= 1;
+        if (entry.flags & CCoinsCacheEntry::FRESH) attr |= 2;
+        if (entry.coin.IsSpent()) attr |= 4;
+        // Only 5 combinations are possible.
+        assert(attr != 2 && attr != 4 && attr != 7);
+
+        // Recompute cachedCoinsUsage.
+        recomputed_usage += entry.coin.DynamicMemoryUsage();
+    }
+    assert(recomputed_usage == cachedCoinsUsage);
 }
 
 static const size_t MIN_TRANSACTION_OUTPUT_WEIGHT = WITNESS_SCALE_FACTOR * ::GetSerializeSize(CTxOut(), PROTOCOL_VERSION);
@@ -372,11 +407,13 @@ const Coin& AccessByTxid(const CCoinsViewCache& view, const uint256& txid)
     return coinEmpty;
 }
 
-bool CCoinsViewErrorCatcher::GetCoin(const COutPoint &outpoint, Coin &coin) const {
+template <typename Func>
+static bool ExecuteBackedWrapper(Func func, const std::vector<std::function<void()>>& err_callbacks)
+{
     try {
-        return CCoinsViewBacked::GetCoin(outpoint, coin);
+        return func();
     } catch(const std::runtime_error& e) {
-        for (const auto& f : m_err_callbacks) {
+        for (const auto& f : err_callbacks) {
             f();
         }
         LogPrintf("Error reading from database: %s\n", e.what());
@@ -386,4 +423,12 @@ bool CCoinsViewErrorCatcher::GetCoin(const COutPoint &outpoint, Coin &coin) cons
         // continue anyway, and all writes should be atomic.
         std::abort();
     }
+}
+
+bool CCoinsViewErrorCatcher::GetCoin(const COutPoint &outpoint, Coin &coin) const {
+    return ExecuteBackedWrapper([&]() { return CCoinsViewBacked::GetCoin(outpoint, coin); }, m_err_callbacks);
+}
+
+bool CCoinsViewErrorCatcher::HaveCoin(const COutPoint &outpoint) const {
+    return ExecuteBackedWrapper([&]() { return CCoinsViewBacked::HaveCoin(outpoint); }, m_err_callbacks);
 }

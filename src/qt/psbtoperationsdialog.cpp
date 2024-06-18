@@ -5,7 +5,6 @@
 #include <qt/psbtoperationsdialog.h>
 
 #include <core_io.h>
-#include <fs.h>
 #include <interfaces/node.h>
 #include <key_io.h>
 #include <node/psbt.h>
@@ -14,6 +13,7 @@
 #include <qt/forms/ui_psbtoperationsdialog.h>
 #include <qt/guiutil.h>
 #include <qt/optionsmodel.h>
+#include <util/fs.h>
 #include <util/strencodings.h>
 
 #include <fstream>
@@ -31,7 +31,6 @@ PSBTOperationsDialog::PSBTOperationsDialog(
                                                                              m_client_model(client_model)
 {
     m_ui->setupUi(this);
-    setWindowTitle("PSBT Operations");
 
     connect(m_ui->signTransactionButton, &QPushButton::clicked, this, &PSBTOperationsDialog::signTransaction);
     connect(m_ui->broadcastTransactionButton, &QPushButton::clicked, this, &PSBTOperationsDialog::broadcastTransaction);
@@ -183,6 +182,8 @@ std::string PSBTOperationsDialog::renderTransaction(const PartiallySignedTransac
         tx_description.append(tr(" * Sends %1 to %2")
             .arg(BitcoinUnits::formatWithUnit(BitcoinUnit::BTC, out.nValue))
             .arg(QString::fromStdString(EncodeDestination(address))));
+        // Check if the address is one of ours
+        if (m_wallet_model != nullptr && m_wallet_model->wallet().txoutIsMine(out)) tx_description.append(" (" + tr("own address") + ")");
         tx_description.append("<br>");
     }
 

@@ -4,7 +4,8 @@
 
 #include <wallet/dump.h>
 
-#include <fs.h>
+#include <common/args.h>
+#include <util/fs.h>
 #include <util/translation.h>
 #include <wallet/wallet.h>
 
@@ -56,12 +57,12 @@ bool DumpWallet(const ArgsManager& args, CWallet& wallet, bilingual_str& error)
     // Write out a magic string with version
     std::string line = strprintf("%s,%u\n", DUMP_MAGIC, DUMP_VERSION);
     dump_file.write(line.data(), line.size());
-    hasher.write(MakeByteSpan(line));
+    hasher << Span{line};
 
     // Write out the file format
     line = strprintf("%s,%s\n", "format", db.Format());
     dump_file.write(line.data(), line.size());
-    hasher.write(MakeByteSpan(line));
+    hasher << Span{line};
 
     if (ret) {
 
@@ -82,7 +83,7 @@ bool DumpWallet(const ArgsManager& args, CWallet& wallet, bilingual_str& error)
             std::string value_str = HexStr(ss_value);
             line = strprintf("%s,%s\n", key_str, value_str);
             dump_file.write(line.data(), line.size());
-            hasher.write(MakeByteSpan(line));
+            hasher << Span{line};
         }
     }
 
@@ -106,7 +107,7 @@ bool DumpWallet(const ArgsManager& args, CWallet& wallet, bilingual_str& error)
 }
 
 // The standard wallet deleter function blocks on the validation interface
-// queue, which doesn't exist for the bitcoin-wallet. Define our own
+// queue, which doesn't exist for the coordinate-wallet. Define our own
 // deleter here.
 static void WalletToolReleaseWallet(CWallet* wallet)
 {
@@ -154,12 +155,12 @@ bool CreateFromDump(const ArgsManager& args, const std::string& name, const fs::
         return false;
     }
     if (ver != DUMP_VERSION) {
-        error = strprintf(_("Error: Dumpfile version is not supported. This version of bitcoin-wallet only supports version 1 dumpfiles. Got dumpfile with version %s"), version_value);
+        error = strprintf(_("Error: Dumpfile version is not supported. This version of coordinate-wallet only supports version 1 dumpfiles. Got dumpfile with version %s"), version_value);
         dump_file.close();
         return false;
     }
     std::string magic_hasher_line = strprintf("%s,%s\n", magic_key, version_value);
-    hasher.write(MakeByteSpan(magic_hasher_line));
+    hasher << Span{magic_hasher_line};
 
     // Get the stored file format
     std::string format_key;
@@ -190,7 +191,7 @@ bool CreateFromDump(const ArgsManager& args, const std::string& name, const fs::
         warnings.push_back(strprintf(_("Warning: Dumpfile wallet format \"%s\" does not match command line specified format \"%s\"."), format_value, file_format));
     }
     std::string format_hasher_line = strprintf("%s,%s\n", format_key, format_value);
-    hasher.write(MakeByteSpan(format_hasher_line));
+    hasher << Span{format_hasher_line};
 
     DatabaseOptions options;
     DatabaseStatus status;
@@ -202,7 +203,7 @@ bool CreateFromDump(const ArgsManager& args, const std::string& name, const fs::
 
     // dummy chain interface
     bool ret = true;
-    std::shared_ptr<CWallet> wallet(new CWallet(/*chain=*/nullptr, name, gArgs, std::move(database)), WalletToolReleaseWallet);
+    std::shared_ptr<CWallet> wallet(new CWallet(/*chain=*/nullptr, name, std::move(database)), WalletToolReleaseWallet);
     {
         LOCK(wallet->cs_wallet);
         DBErrors load_wallet_ret = wallet->LoadWallet();
@@ -235,7 +236,7 @@ bool CreateFromDump(const ArgsManager& args, const std::string& name, const fs::
             }
 
             std::string line = strprintf("%s,%s\n", key, value);
-            hasher.write(MakeByteSpan(line));
+            hasher << Span{line};
 
             if (key.empty() || value.empty()) {
                 continue;
@@ -254,11 +255,7 @@ bool CreateFromDump(const ArgsManager& args, const std::string& name, const fs::
 
             std::vector<unsigned char> k = ParseHex(key);
             std::vector<unsigned char> v = ParseHex(value);
-
-            DataStream ss_key{k};
-            DataStream ss_value{v};
-
-            if (!batch->Write(ss_key, ss_value)) {
+            if (!batch->Write(Span{k}, Span{v})) {
                 error = strprintf(_("Error: Unable to write record to new wallet"));
                 ret = false;
                 break;

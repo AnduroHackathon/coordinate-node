@@ -71,6 +71,10 @@ class WalletLabelsTest(BitcoinTestFramework):
         node = self.nodes[0]
         assert_equal(len(node.listunspent()), 0)
 
+        self.log.info("Checking listlabels' invalid parameters")
+        assert_raises_rpc_error(-8, "Invalid 'purpose' argument, must be a known purpose string, typically 'send', or 'receive'.", node.listlabels, "notavalidpurpose")
+        assert_raises_rpc_error(-8, "Invalid 'purpose' argument, must be a known purpose string, typically 'send', or 'receive'.", node.listlabels, "unknown")
+
         # Note each time we call generate, all generated coins go into
         # the same address, so we call twice to get two addresses w/50 each
         self.generatetoaddress(node, nblocks=1, address=node.getnewaddress(label='coinbase'))
@@ -190,13 +194,13 @@ class WalletLabelsTest(BitcoinTestFramework):
             node.createwallet(wallet_name='watch_only', disable_private_keys=True)
             wallet_watch_only = node.get_wallet_rpc('watch_only')
             BECH32_VALID = {
-                '✔️_VER15_PROG40': 'ccrt10qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqxkg7fn',
-                '✔️_VER16_PROG03': 'ccrt1sqqqqq8uhdgr',
-                '✔️_VER16_PROB02': 'ccrt1sqqqq4wstyw',
+                '✔️_VER15_PROG40': 'bcrt10qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqxkg7fn',
+                '✔️_VER16_PROG03': 'bcrt1sqqqqq8uhdgr',
+                '✔️_VER16_PROB02': 'bcrt1sqqqq4wstyw',
             }
             BECH32_INVALID = {
-                '❌_VER15_PROG41': 'ccrt1sqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqajlxj8',
-                '❌_VER16_PROB01': 'ccrt1sqq5r4036',
+                '❌_VER15_PROG41': 'bcrt1sqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqajlxj8',
+                '❌_VER16_PROB01': 'bcrt1sqq5r4036',
             }
             for l in BECH32_VALID:
                 ad = BECH32_VALID[l]
@@ -208,7 +212,7 @@ class WalletLabelsTest(BitcoinTestFramework):
                 ad = BECH32_INVALID[l]
                 assert_raises_rpc_error(
                     -5,
-                    "Address is not valid" if self.options.descriptors else "Invalid Bitcoin address or script",
+                    "Address is not valid" if self.options.descriptors else "Invalid Coordinate address or script",
                     lambda: wallet_watch_only.importaddress(label=l, rescan=False, address=ad),
                 )
 
