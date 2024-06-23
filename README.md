@@ -21,7 +21,7 @@ The Coordinate sidechain node implementaton is the reference client to interact 
 Building
 --------
 ```
-git clone https://github.com/AnduroHackathon/coordinate-node coordinate-sidechain-node
+git clone git@github.com:AnduroHackathon/coordinate-node.git coordinate-sidechain-node
 ./autogen.sh
 ./configure --prefix=$PWD/depends/$HOST_TRIPLET
 make
