@@ -21,7 +21,7 @@ The Coordinate sidechain node implementaton is the reference client to interact 
 Building
 --------
 ```
-git clone git@github.com:MarathonDH/coordinate-sidechain-node.git coordinate-sidechain-node
+git clone https://github.com/AnduroHackathon/coordinate-node coordinate-sidechain-node
 cd coordinate-sidechain-node/depends
 export HOST_TRIPLET=$(./config.guess)
 make HOST=$HOST_TRIPLET
