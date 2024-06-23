@@ -22,10 +22,6 @@ Building
 --------
 ```
 git clone https://github.com/AnduroHackathon/coordinate-node coordinate-sidechain-node
-cd coordinate-sidechain-node/depends
-export HOST_TRIPLET=$(./config.guess)
-make HOST=$HOST_TRIPLET
-cd ..
 ./autogen.sh
 ./configure --prefix=$PWD/depends/$HOST_TRIPLET
 make
