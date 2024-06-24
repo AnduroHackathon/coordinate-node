@@ -13,6 +13,16 @@ any Bitcoin like transaction on the Coordinate sidecahin. _E.x. P2PK, P2PKH, P2S
 This is useful for users who desire more frequent settlement and on average lower fees than what Bitcoins mainnet
 can offer. The second type is Coordinate's version 10 transactions the creation of onchain assets.
 
+Ready to use Public Node
+------------------
+```
+http://seed2.coordinate.mara.technology:18332/
+username: coordinate
+password: coordinate
+```
+
+Note: Wallet based RPC calls are enabled but should not be used as any funds would be unsecured.
+
 
 What is the Coordinate sidechain node?
 --------------------------------------
