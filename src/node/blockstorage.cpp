@@ -1018,7 +1018,6 @@ bool BlockManager::WriteBlockToDisk(const CBlock& block, FlatFilePos& pos) const
         return error("WriteBlockToDisk: ftell failed");
     }
     pos.nPos = (unsigned int)fileOutPos;
-    LogPrintf("current posistion %i \n",pos.nPos);
     fileout << block;
 
     return true;

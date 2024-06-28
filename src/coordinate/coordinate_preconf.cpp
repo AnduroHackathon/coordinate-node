@@ -61,16 +61,20 @@ CAmount nextBlockFee(CTxMemPool& preconf_pool, uint64_t signedBlockHeight) {
         if((uint64_t)coordinatePreConfSigtem.blockHeight != signedBlockHeight) {
            continue;
         }
-        if(coordinatePreConfSigtem.txid.IsNull()) {
-          continue;
-        }
-        CTransactionRef tx = preconf_pool.get(coordinatePreConfSigtem.txid);
-        if(finalFee == 0 || finalFee > tx->vout[0].nValue) {
-            finalFee = tx->vout[0].nValue;
+        for (size_t i = 0; i < coordinatePreConfSigtem.txids.size(); i++) {
+            if(coordinatePreConfSigtem.txids[i] == uint256::ZERO) {
+               continue;
+            }
+            CTransactionRef tx = preconf_pool.get(coordinatePreConfSigtem.txids[i]);
+            if (tx != nullptr) {
+                if(finalFee == 0 || finalFee > tx->vout[0].nValue) {
+                    finalFee = tx->vout[0].nValue;
+                }
+            }
         }
     } 
     // check and set preconf fee if mempool size is greator than 1MB
-    return preconf_pool.GetTotalTxSize() > 256000 ? finalFee : preconfMinFee;
+    return preconf_pool.GetTotalTxSize() > DEFAULT_SIGNED_BLOCK_WEIGHT ? finalFee : preconfMinFee;
 }
 
 CoordinatePreConfBlock prepareRefunds(CTxMemPool& preconf_pool, CAmount finalFee, uint64_t signedBlockHeight) {
@@ -87,8 +91,10 @@ CoordinatePreConfBlock prepareRefunds(CTxMemPool& preconf_pool, CAmount finalFee
              result.pegins.push_back(coordinatePreConfSigtem.pegins[i]);
           }
         }
-        if(!coordinatePreConfSigtem.txid.IsNull()) {
-            txids.push_back(coordinatePreConfSigtem.txid);
+        for (size_t i = 0; i < coordinatePreConfSigtem.txids.size(); i++) {
+            if(coordinatePreConfSigtem.txids[i] != uint256::ZERO) {
+                txids.push_back(coordinatePreConfSigtem.txids[i]);
+            }
         }
     }
     result.txids = txids;
@@ -122,24 +128,50 @@ bool includePreConfSigWitness(std::vector<CoordinatePreConfSig> preconf, Chainst
     int blockindex = preconf[0].minedBlockHeight;
     int finalizedStatus = preconf[0].finalized;
 
-    // check txid exist in preconf mempool
-    UniValue messages(UniValue::VARR);
+    if(blockindex<0) {
+          return false;
+    }
 
-        for (const CoordinatePreConfSig& coordinatePreConfSigItem : preconf) {
-             UniValue message(UniValue::VOBJ);
-            if(!coordinatePreConfSigItem.txid.IsNull()) {
-                // if(!preconf_pool.exists(GenTxid::Txid(coordinatePreConfSigItem.txid))) {
-                //         LogPrintf("preconf txid not avilable in mempool \n");
-                //         return false;
-                // }
-                message.pushKV("txid", coordinatePreConfSigItem.txid.ToString());
+    if(preconf[0].txids.size() == 0) {
+       LogPrintf("preconf transaction not exist \n");
+        return false;
+    }
+    uint256 txid = preconf[0].txids[preconf[0].txids.size()-1];
+    std::string federationKey = preconf[0].federationKey;
+   
+    auto it = std::find_if(coordinatePreConfSig.begin(), coordinatePreConfSig.end(), 
+        [txid, federationKey] (const CoordinatePreConfSig& d) { 
+            return std::find(d.txids.begin(), d.txids.end(), txid) != d.txids.end() && d.federationKey.compare(federationKey) == 0;
+    });
+    if (it != coordinatePreConfSig.end()) {
+        LogPrintf("preconf transaction list already exist \n");
+        return false;
+    }
+    
+    // get block to find the eligible anduro keys to be signed on presigned block
+    CBlock block;
+    if (!chainman.m_blockman.ReadBlockFromDisk(block, *CHECK_NONFATAL(active_chain[blockindex]))) {
+        LogPrintf("Error reading block from disk at index %d\n", CHECK_NONFATAL(active_chain[blockindex])->GetBlockHash().ToString());
+    }
+
+    // check txid exist in preconf mempool
+    for (const CoordinatePreConfSig& coordinatePreConfSigItem : preconf) {
+        UniValue messages(UniValue::VARR);
+        for (size_t i = 0; i < coordinatePreConfSigItem.txids.size(); i++){
+            UniValue message(UniValue::VOBJ);
+            if(coordinatePreConfSigItem.txids[i] != uint256::ZERO) {
+                if(!preconf_pool.exists(GenTxid::Txid( coordinatePreConfSigItem.txids[i]))) {
+                    LogPrintf("preconf txid not avilable in mempool \n");
+                    return false;
+                }
+                message.pushKV("txid",  coordinatePreConfSigItem.txids[i].ToString());
             } else {
                 message.pushKV("txid", "");
             }
             message.pushKV("signed_block_height", coordinatePreConfSigItem.blockHeight);
             message.pushKV("mined_block_height", coordinatePreConfSigItem.minedBlockHeight);
             UniValue pegmessages(UniValue::VARR);
-            if(coordinatePreConfSigItem.pegins.size() > 0) {
+            if(coordinatePreConfSigItem.pegins.size() > 0 && i == 0) {
                     // preparing message for signature verification
                     for (const CTxOut& pegin : coordinatePreConfSigItem.pegins) {
                         CTxDestination address;
@@ -151,42 +183,30 @@ bool includePreConfSigWitness(std::vector<CoordinatePreConfSig> preconf, Chainst
                         pegmessage.pushKV("amount", pegin.nValue);
                         pegmessages.push_back(pegmessage);
                     }
-                  
+                    
             }
             message.pushKV("pegins", pegmessages);
             messages.push_back(message);
         }
- 
+        if(finalizedStatus == 1) {
+            if(!validateAnduroSignature(coordinatePreConfSigItem.witness,messages.write(),block.currentKeys)) {
+                return false;
+            }
+        } else {
+            if(!validatePreconfSignature(coordinatePreConfSigItem.witness,messages.write(),block.currentKeys)) {
+                return false;
+            }
+        }
+    }
 
-    if(blockindex<0) {
-          return false;
-    }
-    // get block to find the eligible anduro keys to be signed on presigned block
-    CBlock block;
-    if (!chainman.m_blockman.ReadBlockFromDisk(block, *CHECK_NONFATAL(active_chain[blockindex]))) {
-        LogPrintf("Error reading block from disk at index %d\n", CHECK_NONFATAL(active_chain[blockindex])->GetBlockHash().ToString());
-    }
     if(finalizedStatus == 1) {
-        if(!validateAnduroSignature(preconf[0].witness,messages.write(),block.currentKeys)) {
-            return false;
-        }
         removePreConfWitness();
-    } else {
-        if(!validatePreconfSignature(preconf[0].witness,messages.write(),block.currentKeys)) {
-            return false;
-        }
     }
+
     for (const CoordinatePreConfSig& preconfItem : preconf) {
-        uint256 txid = preconfItem.txid;
-        std::string federationKey = preconfItem.federationKey;
-        auto it = std::find_if(coordinatePreConfSig.begin(), coordinatePreConfSig.end(), 
-        [txid, federationKey] (const CoordinatePreConfSig& d) { 
-            return d.txid == txid && d.federationKey.compare(federationKey) == 0;
-        });
-        if (it == coordinatePreConfSig.end()) {
-            coordinatePreConfSig.push_back(preconfItem);
-        }
+        coordinatePreConfSig.push_back(preconfItem);
     }
+    
     return true;
 }
 
@@ -273,7 +293,7 @@ std::vector<CoordinatePreConfSig> getPreConfSig() {
  */
 void updateBroadcastedPreConf(CoordinatePreConfSig& preconfItem, int64_t peerId) {
     for (CoordinatePreConfSig& coordinatePreConfSigItem : coordinatePreConfSig) {
-        if(coordinatePreConfSigItem.witness.compare(preconfItem.witness)==0) {
+        if(coordinatePreConfSigItem.witness.compare(preconfItem.witness)==0 && !coordinatePreConfSigItem.isBroadcasted) {
             if (std::find(preconfItem.peerList.begin(), preconfItem.peerList.end(), peerId) != preconfItem.peerList.end()) {
                 coordinatePreConfSigItem.isBroadcasted = true;
             } else {
@@ -289,7 +309,7 @@ void updateBroadcastedPreConf(CoordinatePreConfSig& preconfItem, int64_t peerId)
  */
 void updateBroadcastedSignedBlock(SignedBlock& signedBlockItem, int64_t peerId) {
     for (SignedBlock& finalizedSignedBlock : finalizedSignedBlocks) {
-        if(finalizedSignedBlock.nHeight == signedBlockItem.nHeight) {
+        if(finalizedSignedBlock.nHeight == signedBlockItem.nHeight && !finalizedSignedBlock.isBroadcasted) {
             if (std::find(signedBlockItem.peerList.begin(), signedBlockItem.peerList.end(), peerId) != signedBlockItem.peerList.end()) {
                 finalizedSignedBlock.isBroadcasted = true;
             } else {
@@ -675,7 +695,6 @@ CAmount getRefundForPreconfTx(const CTransaction& ptx, CAmount blockFee, CCoinsV
         if(coin.IsSpent()) {
             continue;
         }
-
         if (!MoneyRange(coin.out.nValue) || !MoneyRange(nValueIn)) {
             continue;
         }
@@ -685,14 +704,25 @@ CAmount getRefundForPreconfTx(const CTransaction& ptx, CAmount blockFee, CCoinsV
     for (size_t i = 1; i < ptx.vout.size(); ++i) {
         value_out = value_out + ptx.vout[i].nValue;
     }
-
     if (nValueIn < value_out) { 
         return refund;
     }
-
     refund = (nValueIn - value_out) - fee;
     if(refund < 0) {
         return 0;
     }
     return refund;
+}
+
+
+CAmount getRefundForPreconfCurrentTx(const CTransaction& ptx, CAmount blockFee, CCoinsViewCache& inputs) {
+    if(ptx.IsCoinBase()) {
+        return 0;
+    }
+    const COutPoint &prevout = COutPoint(ptx.GetHash(), 0);
+    const Coin& coin = inputs.AccessCoin(prevout);
+    if(coin.IsSpent()) {
+        return 0;
+    }
+    return coin.out.nValue;
 }

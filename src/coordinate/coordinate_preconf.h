@@ -63,11 +63,9 @@ public:
 
 template<typename Stream, typename CoordinatePreConfSigType>
 inline void UnserializeCoordinatePreConfSig(CoordinatePreConfSigType& preconfData, Stream& s) {
-    s >> preconfData.txid;
+    s >> preconfData.txids;
     s >> preconfData.blockHeight;
     s >> preconfData.minedBlockHeight;
-    s >> preconfData.reserve;
-    s >> preconfData.vsize;
     s >> preconfData.witness;
     s >> preconfData.isBroadcasted;
     s >> preconfData.peerList;
@@ -78,11 +76,9 @@ inline void UnserializeCoordinatePreConfSig(CoordinatePreConfSigType& preconfDat
 
 template<typename Stream, typename CoordinatePreConfSigType>
 inline void SerializeCoordinatePreConfSig(const CoordinatePreConfSigType& preconfData, Stream& s) {
-    s << preconfData.txid;
+    s << preconfData.txids;
     s << preconfData.blockHeight;
     s << preconfData.minedBlockHeight;
-    s << preconfData.reserve;
-    s << preconfData.vsize;
     s << preconfData.witness;
     s << preconfData.isBroadcasted;
     s << preconfData.peerList;
@@ -93,11 +89,9 @@ inline void SerializeCoordinatePreConfSig(const CoordinatePreConfSigType& precon
 
 struct CoordinatePreConfSig {
 public:
-    uint256 txid; /*!< Preconf Mempool txid*/
+    std::vector<uint256> txids; /*!< Preconf Mempool txid*/
     int64_t blockHeight; /*!< max block height where the preconf signature upto valid */
     int64_t minedBlockHeight; /*!< federation public key reference in mined block height*/
-    int32_t reserve; /*!< transaction reserve */
-    int32_t vsize; /*!< transaction virtula size */
     std::string witness;
     std::string federationKey; /*!< federation public key */
     uint32_t finalized; /*!< 0 - not finalized by federation, 1 - finalized by federation */
@@ -127,10 +121,8 @@ public:
     void SetNull()
     {
         blockHeight = -1;
-        reserve = -1;
-        vsize = -1;
         minedBlockHeight = -1;
-        txid.SetNull();
+        static_cast<void>(txids.empty());
         witness = "";
         isBroadcasted = false;
         static_cast<void>(peerList.empty());
@@ -308,3 +300,10 @@ CAmount getPreconfFeeForFederation(std::vector<CTransactionRef> vtx, CAmount cur
  */
 CAmount getRefundForPreconfTx(const CTransaction& ptx, CAmount blockFee, CCoinsViewCache& inputs) ;
 
+/**
+ * This function will calculate refund for particular tx in signed block
+ * @param[in] ptx  used to find previous blocks based on active chain state
+ * @param[in] blockFee signed block current fee
+ * @param[in] inputs active coin tip
+ */
+CAmount getRefundForPreconfCurrentTx(const CTransaction& ptx, CAmount blockFee, CCoinsViewCache& inputs);

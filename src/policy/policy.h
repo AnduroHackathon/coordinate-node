@@ -23,6 +23,9 @@ class CScript;
 static constexpr unsigned int DEFAULT_BLOCK_MAX_WEIGHT{MAX_BLOCK_WEIGHT - 10000};
 /** Default for -blockmintxfee, which sets the minimum feerate for a transaction in blocks created by mining code **/
 static constexpr unsigned int DEFAULT_BLOCK_MIN_TX_FEE{1000};
+
+static constexpr unsigned int DEFAULT_SIGNED_BLOCK_WEIGHT{1024000};
+
 /** The maximum weight for transactions we're willing to relay/mine */
 static constexpr int32_t MAX_STANDARD_TX_WEIGHT{400000};
 /** The maximum weight for transactions we're willing to relay/mine for asset */

@@ -174,7 +174,7 @@ static RPCHelpMan sendpreconflist()
                    }
             }
  
-            
+            CoordinatePreConfSig preconfObj;
             for (unsigned int idx = 0; idx < req_params.size(); idx++) {
                 const UniValue& fedParams = req_params[idx].get_obj();
                 RPCTypeCheckObj(fedParams,
@@ -186,24 +186,25 @@ static RPCHelpMan sendpreconflist()
                                     {"reserve", UniValueType(UniValue::VNUM)},
                                 });
                 std::string receivedTx = fedParams.find_value("txid").get_str();
-                CoordinatePreConfSig preconfObj;
+               
                 if (receivedTx.compare("") != 0) {
-                    preconfObj.txid = uint256S(receivedTx);
+                    preconfObj.txids.push_back(uint256S(receivedTx));
+                } else {
+
+                    preconfObj.txids.push_back(uint256::ZERO);
                 }
                 preconfObj.blockHeight =  fedParams.find_value("signed_block_height").getInt<int64_t>();
                 preconfObj.minedBlockHeight =  fedParams.find_value("mined_block_height").getInt<int64_t>();
-                preconfObj.vsize =  fedParams.find_value("vsize").getInt<int32_t>();
-                preconfObj.reserve =  fedParams.find_value("reserve").getInt<int32_t>();
                 preconfObj.finalized = finalized;
                 preconfObj.witness =  request.params[1].get_str();
                 preconfObj.federationKey = request.params[3].get_str();
                 if(idx == 0 && pegins.size() > 0) {
                     preconfObj.pegins = pegins;
                 }
-                preconf.push_back(preconfObj);
+                
             }
-
-             return includePreConfSigWitness(preconf, chainman);
+            preconf.push_back(preconfObj);
+            return includePreConfSigWitness(preconf, chainman);
     
 
             return false;
@@ -258,6 +259,11 @@ static RPCHelpMan getpreconflist()
         },
         RPCExamples{"\nGet current preconf block in queue\n" + HelpExampleCli("getpreconflist", "height")},
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+
+            const NodeContext& node{EnsureAnyNodeContext(request.context)};
+            ChainstateManager& chainman = EnsureChainman(node);
+            CTxMemPool& preconf_pool{*chainman.ActiveChainstate().GetPreConfMempool()};
+
             uint32_t nHeight = 0;
             if (!request.params[0].isNull()) {
                 if(!ParseUInt32(request.params[0].get_str(), &nHeight)) {
@@ -270,16 +276,34 @@ static RPCHelpMan getpreconflist()
             UniValue block(UniValue::VARR);
             std::vector<CoordinatePreConfSig> coordinatePreConfSigs = getPreConfSig();
             for (const CoordinatePreConfSig& coordinatePreConfSig : coordinatePreConfSigs) {
-                if (coordinatePreConfSig.blockHeight == (int32_t)nHeight || nHeight == 0) {
-                    UniValue voteItem(UniValue::VOBJ);
-                    voteItem.pushKV("txid", coordinatePreConfSig.txid.ToString());
-                    voteItem.pushKV("mined_block_height", coordinatePreConfSig.minedBlockHeight);
-                    voteItem.pushKV("signed_block_height", coordinatePreConfSig.blockHeight);
-                    voteItem.pushKV("reserve", coordinatePreConfSig.reserve);
-                    voteItem.pushKV("vsize", coordinatePreConfSig.vsize);
-                    voteItem.pushKV("finalized", coordinatePreConfSig.finalized);
-                    voteItem.pushKV("federationkey", coordinatePreConfSig.federationKey);
-                    block.push_back(voteItem);
+                    if (coordinatePreConfSig.blockHeight == (int32_t)nHeight || nHeight == 0) {
+                        for (size_t i = 0; i < coordinatePreConfSig.txids.size(); i++)
+                        {
+                            UniValue voteItem(UniValue::VOBJ);
+                            if(coordinatePreConfSig.txids[i] == uint256::ZERO) {
+                                voteItem.pushKV("txid","");
+                                voteItem.pushKV("reserve", 0);
+                                voteItem.pushKV("vsize", 0);
+                            } else {
+                                TxMempoolInfo info = preconf_pool.info(GenTxid::Txid(coordinatePreConfSig.txids[i]));
+                                if(info.tx) {
+                                    voteItem.pushKV("txid",  coordinatePreConfSig.txids[i].ToString());
+                                    voteItem.pushKV("reserve", info.tx->vout[0].nValue);
+                                    voteItem.pushKV("vsize", info.vsize);
+                                } else {
+                                    voteItem.pushKV("txid","");
+                                    voteItem.pushKV("reserve", 0);
+                                    voteItem.pushKV("vsize", 0);
+                                }
+                            }
+                                voteItem.pushKV("mined_block_height", coordinatePreConfSig.minedBlockHeight);
+                                voteItem.pushKV("signed_block_height", coordinatePreConfSig.blockHeight);
+                                voteItem.pushKV("finalized", coordinatePreConfSig.finalized);
+                                voteItem.pushKV("federationkey", coordinatePreConfSig.federationKey);
+                                block.push_back(voteItem);
+                        }
+
+              
                 }
             }
             result.pushKV("block", block);
@@ -379,6 +403,98 @@ static RPCHelpMan getsignedblockcount()
     };
 }
 
+
+static RPCHelpMan getpreconftxrefund() {
+    return RPCHelpMan{
+        "getpreconftxrefund",
+        "\nGet preconf tx refund\n",
+        {
+            {"txs",RPCArg::Type::ARR, RPCArg::Optional::NO, "preconf tx list",
+              {
+                {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
+                    {
+                        {"tx", RPCArg::Type::STR, RPCArg::Optional::NO, "preconf tx"},
+                    }
+                }
+              }
+            },
+        },
+        RPCResult{
+            RPCResult::Type::ARR, "", "", {
+                {
+                    {RPCResult::Type::OBJ, "", "preconf tx details",
+                    {
+                        {RPCResult::Type::STR, "tx", "preconf tx"},
+                        {RPCResult::Type::NUM, "refund", "preconf tx refund"},
+                    }},
+                },
+            },
+        },
+        RPCExamples{
+            HelpExampleCli("getpreconftxrefund", "") + HelpExampleRpc("getpreconftxrefund", "")},
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            const UniValue& req_params = request.params[0].get_array();
+                   
+            if (req_params.size() == 0) {
+               throw JSONRPCError (RPC_CLIENT_IN_INITIAL_DOWNLOAD,
+                                    "Txid not available");
+            }
+            LOCK(cs_main);
+            const NodeContext& node = EnsureAnyNodeContext(request.context);
+            ChainstateManager& chainman = EnsureChainman(node);
+            CCoinsViewCache view(&chainman.ActiveChainstate().CoinsTip());
+            chainman.ActiveChainstate().UpdatedCoinsTip(view,chainman.ActiveChainstate().m_chain.Height());
+
+
+            const CBlockIndex* blockindex = nullptr;
+            uint256 hash_block;
+            UniValue result(UniValue::VARR);  
+            for (unsigned int idx = 0; idx < req_params.size(); idx++) {
+                const UniValue& params = req_params[idx].get_obj();
+                RPCTypeCheckObj(params,{
+                    {"tx", UniValueType(UniValue::VSTR)},
+                });
+                CAmount refund = CAmount(0);
+                uint256 hash = ParseHashV(params.find_value("tx"), "parameter 1");
+                CTransactionRef mined_tx;
+                std::vector<SignedBlock> finalizedBlocks= getFinalizedSignedBlocks();
+                for (SignedBlock finalizedSignedBlock : finalizedBlocks) {
+                    for (const auto& tx : finalizedSignedBlock.vtx) {
+                        if (tx->GetHash() == hash) {
+                            mined_tx =  tx;
+                            refund = getRefundForPreconfCurrentTx(*mined_tx,finalizedSignedBlock.currentFee,view);
+                            break;
+                        }
+                    }
+                }
+                if(!mined_tx) {
+                    SignedTxindex signedTxIndex;
+                    chainman.ActiveChainstate().psignedblocktree->getTxPosition(hash,signedTxIndex);
+                    if(!signedTxIndex.signedBlockHash.IsNull()) {
+                        CChain& active_chain = chainman.ActiveChain();
+                        CBlock block;
+                        if (chainman.m_blockman.ReadBlockFromDisk(block, *active_chain[signedTxIndex.blockIndex])) {
+                            for (const SignedBlock& preconfBlockItem : block.preconfBlock) {
+                                if(preconfBlockItem.GetHash() == signedTxIndex.signedBlockHash) {
+                                    mined_tx = preconfBlockItem.vtx[signedTxIndex.pos];
+                                    refund = getRefundForPreconfCurrentTx(*mined_tx,preconfBlockItem.currentFee,view);
+                                    break;
+                                }
+                            }
+                        } 
+                    }
+                }
+                UniValue preconfDetails(UniValue::VOBJ); 
+                preconfDetails.pushKV("tx", hash.ToString());
+                preconfDetails.pushKV("refund", refund);
+                result.push_back(preconfDetails); 
+            }
+            return result;
+        },
+    };
+}
+
+
 void RegisterPreConfMempoolRPCCommands(CRPCTable& t)
 {
     static const CRPCCommand commands[]{
@@ -387,7 +503,8 @@ void RegisterPreConfMempoolRPCCommands(CRPCTable& t)
         {"preconf", &getpreconffee},
         {"preconf", &getpreconflist},
         {"preconf", &getfinalizedsignedblocks},
-        {"preconf", &getsignedblockcount}
+        {"preconf", &getsignedblockcount},
+        {"preconf", &getpreconftxrefund}
     };
     for (const auto& c : commands) {
         t.appendCommand(c.name, &c);

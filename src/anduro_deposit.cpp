@@ -78,7 +78,6 @@ bool isPreCommitmentValid(std::vector<AnduroPreCommitment> commitments, Chainsta
       if (!chainman.m_blockman.ReadBlockFromDisk(block, *CHECK_NONFATAL(active_chain[blockindex]))) {
          LogPrintf("Error reading block from disk at index %d\n", CHECK_NONFATAL(active_chain[blockindex])->GetBlockHash().ToString());
       }
-
       isValid = validateAnduroSignature(commitment.witness,block.GetHash().ToString(),block.currentKeys);
    }
 

@@ -4761,7 +4761,6 @@ MempoolAcceptResult ChainstateManager::ProcessTransaction(const CTransactionRef&
     auto result = AcceptToMemoryPool(active_chainstate, tx, GetTime(), /*bypass_limits=*/ false, test_accept, is_preconf);
     CCoinsViewCache view(&active_chainstate.CoinsTip());
     active_chainstate.UpdatedCoinsTip(view,active_chainstate.m_chain.Height() + 1);
-
     if(is_preconf) {
        active_chainstate.GetPreConfMempool()->check(view, active_chainstate.m_chain.Height() + 1);
     } else {

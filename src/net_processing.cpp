@@ -4868,7 +4868,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         while(incr<3) {
             std::vector<AnduroPreCommitment> pending_commitments = listPendingCommitment(currentHeight + incr);
             if(pending_commitments.size()>0) {
-            m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::PREBLOCKSIGNREPONSE, pending_commitments));
+                m_connman.PushMessage(&pfrom, msgMaker.Make(NetMsgType::PREBLOCKSIGNREPONSE, pending_commitments));
             }
             incr = incr + 1;
         }
